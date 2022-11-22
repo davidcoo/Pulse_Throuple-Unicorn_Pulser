@@ -1,0 +1,11 @@
+../Core/Src/bxcan.c:57:17:convertFrameIDToRegister	24	static
+../Core/Src/bxcan.c:68:17:convertRegisterToFrameID	24	static
+../Core/Src/bxcan.c:78:13:waitMSRINAKBitStateChange	32	static
+../Core/Src/bxcan.c:114:13:abortExpiredTxMailboxes	32	static
+../Core/Src/bxcan.c:166:13:processErrorStatus	24	static
+../Core/Src/bxcan.c:196:6:bxCANConfigure	56	static
+../Core/Src/bxcan.c:351:6:bxCANConfigureFilters	40	static
+../Core/Src/bxcan.c:441:6:bxCANReapError	24	static
+../Core/Src/bxcan.c:463:6:bxCANPush	56	static
+../Core/Src/bxcan.c:634:6:bxCANPop	64	static
+../Core/Src/bxcan.c:725:6:bxCANComputeTimings	40	static

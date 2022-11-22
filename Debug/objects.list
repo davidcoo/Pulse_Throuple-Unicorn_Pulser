@@ -1,4 +1,5 @@
 "./Core/Src/blinkers.o"
+"./Core/Src/bxcan.o"
 "./Core/Src/freertos.o"
 "./Core/Src/main.o"
 "./Core/Src/motor_control.o"
