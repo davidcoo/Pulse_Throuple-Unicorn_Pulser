@@ -1,4 +1,4 @@
-#include <types.h>
+#include <stdint.h>
 
 typedef struct {
     uint8_t len;
@@ -17,9 +17,9 @@ typedef struct {
 } heartbeat_control_data_t;
 
 typedef enum {
-    BLINK_OFF = 0;
-    BLINK_LEFT = 1;
-    BLINK_RIGHT = 2;
+    BLINK_OFF = 0,
+    BLINK_LEFT = 1,
+    BLINK_RIGHT = 2,
 } blinker_state_e;
 
 typedef struct {
@@ -27,15 +27,15 @@ typedef struct {
 } blinker_data_t;
 
 typedef enum {
-    COLLISION_NONE = 0;
-    COLLISION_20 = 1;
-    COLLISION_10 = 2;
+    COLLISION_NONE = 0,
+    COLLISION_20 = 1,
+    COLLISION_10 = 2,
 } collision_state_e;
 
 typedef enum {
-    COLLISION_FRONT = 0;
-    COLLISION_LEFT = 1;
-    COLLISION_RIGHT = 2;
+    COLLISION_FRONT = 0,
+    COLLISION_LEFT = 1,
+    COLLISION_RIGHT = 2,
 } collision_dir_e;
 
 typedef struct {

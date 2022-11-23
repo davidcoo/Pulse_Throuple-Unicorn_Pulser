@@ -7,12 +7,13 @@
 #include <sys/socket.h>
 #include <linux/can.h>
 #include <linux/can/raw.h>
-#include <can_header_temp.h>
+#include "can_header_temp.h"
 
 typedef struct {
     uint8_t enabled;
     uint8_t sending_heartbeat;
 } control_state_t;
+
 int main()
 {
     // first set up CAN
@@ -21,7 +22,7 @@ int main()
     struct sockaddr_can addr;
     struct ifreq ifr;
     struct can_frame frame;
-    struct control_state_t state;
+    control_state_t state;
 
     memset(&frame, 0, sizeof(struct can_frame));
 
@@ -34,7 +35,7 @@ int main()
     }
 
     //2. Specify can0 device
-    strcpy(if.ifr_name, "can0");
+    strcpy(ifr.ifr_name, "can0");
     ret = ioctl(s, SIOCGIFINDEX, &ifr);
     if (ret < 0) {
         perror("ioctl failed");
@@ -72,7 +73,7 @@ int main()
             if (nbytes != sizeof(frame)) {
                 printf("Send error frame[0]\r\n");
                 system("sudo ifconfig can0 down");
-            } )
+            }
         }
     }
 }
