@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "blinkers.h"
 #include "motor_control.h"
+#include "throuple_can.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,7 +45,7 @@
 ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 
-CAN_HandleTypeDef hcan;
+
 
 
 osThreadId defaultTaskHandle;
@@ -56,36 +57,14 @@ osThreadId mcuStatusHandle;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_CAN_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_ADC2_Init(void);
 void StartDefaultTask(void const * argument);
 void blink(void const * argument);
 
-/* USER CODE BEGIN PFP */
-uint32_t TxMailbox;
-uint8_t TxData[8];
-uint8_t RxData[8];
-CAN_TxHeaderTypeDef TxHeader;
-CAN_RxHeaderTypeDef RxHeader;
-int datacheck = 0;
 
-void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan){
-	if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO1, &RxHeader, RxData)!= HAL_OK){
-		Error_Handler();
-	}
-	if (RxHeader.DLC == 2)
-	{
-		datacheck = 1;
-	}
-}
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
-	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
-	if (RxHeader.DLC == 2)
-	{
-		datacheck = 1;
-	}
-}
+
+
 
 /* USER CODE END PFP */
 
@@ -122,12 +101,12 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_CAN_Init();
   MX_ADC1_Init();
   MX_ADC2_Init();
   /* USER CODE BEGIN 2 */
   blinkers_init();
   motor_init();
+  can_init();
 
   /* USER CODE END 2 */
 
@@ -312,71 +291,7 @@ static void MX_ADC2_Init(void)
 
 }
 
-/**
-  * @brief CAN Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_CAN_Init(void)
-{
 
-  /* USER CODE BEGIN CAN_Init 0 */
-
-  /* USER CODE END CAN_Init 0 */
-
-  /* USER CODE BEGIN CAN_Init 1 */
-
-  /* USER CODE END CAN_Init 1 */
-  hcan.Instance = CAN1;
-  hcan.Init.Prescaler = 4;
-  hcan.Init.Mode = CAN_MODE_NORMAL;
-  hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan.Init.TimeSeg1 = CAN_BS1_2TQ;
-  hcan.Init.TimeSeg2 = CAN_BS2_1TQ;
-  hcan.Init.TimeTriggeredMode = DISABLE;
-  hcan.Init.AutoBusOff = DISABLE;
-  hcan.Init.AutoWakeUp = ENABLE;
-  hcan.Init.AutoRetransmission = DISABLE;
-  hcan.Init.ReceiveFifoLocked = DISABLE;
-  hcan.Init.TransmitFifoPriority = DISABLE;
-  if (HAL_CAN_Init(&hcan) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN CAN_Init 2 */
-  CAN_FilterTypeDef canfilterconfig;
-
-	canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
-	canfilterconfig.FilterBank = 0;  // which filter bank to use from the assigned ones
-	canfilterconfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-	canfilterconfig.FilterIdHigh = 0x446<<5;
-	canfilterconfig.FilterIdLow = 0;
-	canfilterconfig.FilterMaskIdHigh = 0x446<<5;
-	canfilterconfig.FilterMaskIdLow = 0x0000;
-	canfilterconfig.FilterMode = CAN_FILTERMODE_IDLIST;
-	canfilterconfig.FilterScale = CAN_FILTERSCALE_16BIT;
-	canfilterconfig.SlaveStartFilterBank = 14;  // doesn't matter in single can controllers
-
-	if (HAL_CAN_ConfigFilter(&hcan, &canfilterconfig)!= HAL_OK){
-		// Filter Config Error
-		Error_Handler();
-	}
-
-	// Start CAN
-	if (HAL_CAN_Start(&hcan) != HAL_OK)
-	{
-	  /* Start Error */
-	  Error_Handler();
-	}
-	// Activate RX Notification
-	if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING)!= HAL_OK){
-		// Notification Error
-		Error_Handler();
-	}
-
-  /* USER CODE END CAN_Init 2 */
-
-}
 
 
 
@@ -470,13 +385,6 @@ void blink(void const * argument)
 		  HAL_GPIO_TogglePin(MCU_IND_GPIO_Port,MCU_IND_Pin);
 		  datacheck = 0;
 	  }
-	  TxHeader.DLC = 2;
-	  TxHeader.IDE = CAN_ID_STD;
-	  TxHeader.RTR = CAN_RTR_DATA;
-	  TxHeader.StdId = 0x446;
-	  TxData[0] = 0x12;
-	  TxData[1] = 0x34;
-	  HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
 	  set_drive_speed(speed);
 	  if (speed == 95){
 		  speed = 93;
