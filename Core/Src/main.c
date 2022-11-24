@@ -65,9 +65,8 @@ void blink(void const * argument);
 
 
 
-
 /* USER CODE END PFP */
-
+void can_rx(void const * argument);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
@@ -107,6 +106,7 @@ int main(void)
   blinkers_init();
   motor_init();
   can_init();
+  extern QueueHandle_t xQueueCANRx;
 
   /* USER CODE END 2 */
 
@@ -137,6 +137,9 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  osThreadDef(canRecieve, can_rx, osPriorityHigh, 0, 128);
+  mcuStatusHandle = osThreadCreate(osThread(canRecieve), NULL);
+
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -377,14 +380,9 @@ void blink(void const * argument)
 	HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
 	set_drive_speed(0);
 	int speed = 95;
-	HAL_CAN_StateTypeDef state;
   /* Infinite loop */
   for(;;)
   {
-	  if (datacheck){
-		  HAL_GPIO_TogglePin(MCU_IND_GPIO_Port,MCU_IND_Pin);
-		  datacheck = 0;
-	  }
 	  set_drive_speed(speed);
 	  if (speed == 95){
 		  speed = 93;
@@ -399,6 +397,38 @@ void blink(void const * argument)
   }
   /* USER CODE END blink */
 }
+
+/**
+* @brief Function implementing the mcuStatus thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_blink */
+void can_rx(void const * argument)
+{
+  /* USER CODE BEGIN blink */
+	can_msg_t msg;
+  /* Infinite loop */
+  for(;;)
+  {
+	if( xQueueCANRx != NULL )
+	{
+	  if( xQueueReceive( xQueueCANRx,
+						 &( msg ),
+						 ( TickType_t ) 0 ))
+	  {
+		 if (msg.id == 0x100){
+			 left_blinker_on();
+		 }
+		 else if (msg.id == 0x446){
+			 right_blinker_on();
+		 }
+	  }
+	}
+  }
+  /* USER CODE END blink */
+}
+
 
 /**
   * @brief  Period elapsed callback in non blocking mode

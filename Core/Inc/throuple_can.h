@@ -14,6 +14,12 @@
 void can_init();
 
 
+typedef struct {
+	uint16_t id;
+	uint8_t msg[8];
+} can_msg_t;
+
+extern QueueHandle_t xQueueCANRx;
 
 
 

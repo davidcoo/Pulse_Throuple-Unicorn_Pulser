@@ -1,0 +1,4 @@
+../Core/Src/throuple_can.c:32:6:can_init	8	static
+../Core/Src/throuple_can.c:38:6:HAL_CAN_RxFifo0MsgPendingCallback	40	static
+../Core/Src/throuple_can.c:64:13:MX_CAN_Init	48	static
+../Core/Src/throuple_can.c:124:6:Error_Handler	4	static,ignoring_inline_asm

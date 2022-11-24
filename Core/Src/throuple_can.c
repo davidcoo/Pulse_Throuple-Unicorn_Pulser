@@ -7,7 +7,8 @@
 
 
 #include "cmsis_os.h"
-#include <throuple_can.h>
+#include "throuple_can.h"
+#include <string.h>
 
 void can_init();
 void can_send();
@@ -26,17 +27,32 @@ uint8_t RxData[8];
 CAN_TxHeaderTypeDef TxHeader;
 CAN_RxHeaderTypeDef RxHeader;
 
+QueueHandle_t xQueueCANRx;
 
 void can_init(){
 	MX_CAN_Init();
+	xQueueCANRx = xQueueCreate( 10,sizeof(can_msg_t));
 }
 
 // Interrupt Handler for receiving a can message.
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
 	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
-	if (RxHeader.DLC == 2)
+	can_msg_t msg;
+	BaseType_t xHigherPriorityTaskWoken;
+	xHigherPriorityTaskWoken = pdFALSE;
+	if (RxHeader.DLC !=0)
 	{
-		datacheck = 1;
+		msg.id = RxHeader.StdId;
+		memcpy(msg.msg, RxData, 8);
+		BaseType_t res = xQueueSendFromISR(xQueueCANRx,(void * )&msg, &xHigherPriorityTaskWoken );
+		if (res == pdTRUE){
+			res = 0;
+		}
+	}
+	if( xHigherPriorityTaskWoken )
+	{
+	        /* Actual macro used here is port specific. */
+
 	}
 }
 
