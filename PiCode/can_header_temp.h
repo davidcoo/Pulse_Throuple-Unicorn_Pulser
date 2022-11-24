@@ -1,13 +1,16 @@
 #include <stdint.h>
 
+const uint8_t MESSAGE_LEN = 8;
+const uint16_t HEARTBEAT_CONTROL_ID = 0x100;
+const uint16_t HEARTBEAT_FRONT_ID = 0x200;
+const uint16_t HEARTBEAT_REAR_ID = 0x300;
+const uint16_t BLINKER_DATA_ID = 0x400;
+const uint16_t COLLISION_MSG_ID = 0x500;
+
 typedef struct {
     uint8_t len;
     uint16_t id;
 } can_header_t;
-
-const uint8_t MESSAGE_LEN = 8;
-const uint16_t HEARTBEAT_CONTROL_ID = 0x100;
-const uint16_t BLINKER_ID = 0x200;
 
 
 typedef struct {
@@ -49,4 +52,5 @@ typedef struct {
 } heartbeat_front_data_t;
 
 typedef struct {
+    uint16_t heartbeat;
 } heartbeat_rear_data_t;
