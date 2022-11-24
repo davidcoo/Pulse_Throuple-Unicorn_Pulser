@@ -58,7 +58,8 @@ int main()
     state.sending_heartbeat = 1;
     while(state.enabled){
         if (state.sending_heartbeat) {
-            // make this a function to send the heartbeat 
+            // make this a function to send the heartbeat
+	    /* 
             frame.can_id = 0x100;
             frame.can_dlc = 8;
             frame.data[0] = 0;
@@ -74,6 +75,6 @@ int main()
                 printf("Send error frame[0]\r\n");
                 system("sudo ifconfig can0 down");
             }
-        }
+        } */
     }
 }
