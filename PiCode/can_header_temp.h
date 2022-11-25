@@ -8,7 +8,6 @@ const uint16_t BLINKER_DATA_ID = 0x400;
 const uint16_t COLLISION_MSG_ID = 0x500;
 
 typedef struct {
-    uint8_t len;
     uint16_t id;
 } can_header_t;
 
