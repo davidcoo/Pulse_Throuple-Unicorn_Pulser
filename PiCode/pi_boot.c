@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include<netinet/in.h>
+#include <netinet/in.h>
 #include "pthread.h"
 #include <inttypes.h>
 #include "state.h"
@@ -16,10 +16,12 @@
 #include "can_header_temp.h"
 
 #define BITRATE 500000
-#define LOCAL_HOST "172.20.10.2"
+//#define LOCAL_HOST "169.254.81.79"
+#define LOCAL_HOST "169.254.190.42"
 #define R_PORT 13606
 
-#define REMOTE_HOST "172.20.10.3"
+#define REMOTE_HOST "169.254.81.79"
+//#define REMOTE_HOST "169.254.190.42"
 #define S_PORT 1000
 
 #define TX_INTERVAL_MS 300
@@ -63,10 +65,11 @@ int main()
     struct sockaddr_can addr;
     struct ifreq ifr;
     struct can_frame frame;
-    control_state_t state;
+    control_state_t control_state;
 
     int sockfd;
     char buffer[STATE_SIZE+1];
+    struct sockaddr_in servaddr = { 0 };
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("failed to create socket");
@@ -101,7 +104,7 @@ int main()
 
     //1. Create Socket
     s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-    printf("socket: %d", s);
+    printf("socket: %d \n", s);
     if (s < 0) {
         perror("socket PF_CAN failed");
         return 1;
@@ -110,6 +113,7 @@ int main()
     //2. Specify can0 device
     strcpy(ifr.ifr_name, "can0");
     ret = ioctl(s, SIOCGIFINDEX, &ifr);
+
     if (ret < 0) {
         perror("ioctl failed");
         return 1;
@@ -124,12 +128,9 @@ int main()
         return 1;
     }
 
-    //4. don't disable filtering rules
-    // setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0);
-
-    state.enabled = 1;
-    state.sending_heartbeat = 1;
-    while(state.enabled){
+    control_state.enabled = 1;
+    control_state.sending_heartbeat = 1;
+    while(control_state.enabled){
         int n, len;
         n = recvfrom(sockfd, recvbuf, STATE_SIZE, MSG_WAITALL,
                     (struct sockaddr *) &servaddr, &len);
