@@ -113,7 +113,31 @@ void send_can(control_state_t *control_state) {
 */}
 
 void *receive_can(void *args) {
-    // check at 60 Hz
+
+    struct can_frame frame;
+    memset(&frame, 0, sizeof(struct can_frame));
+    // need to memset frame
+    struct can_filter rfilter[2];
+    s = *((int*)args);
+
+    rfilter[0].can_id = 0x200;
+    rfilter[0].can_mask = CAN_SFF_MASK;
+    rfilter[1].can_id = 0x300;
+    rfilter[1].can_mask = CAN_SFF_MASK;
+
+    setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter))
+
+    while(1){
+        nbytes = read(s, &frame, sizeof(frame);
+        if (nbytes > 0){
+            printf("can_id = 0x%X\r\ncan_dlc = %d \r\n", frame.can_id, frame.can_dlc);
+            int i =0;
+            for(i = 0; i < 8; i++)
+                printf("data[%d] = %d\r\n", i, frame.data[i]);
+        }
+        memset(&frame, 0, sizeof(struct can_frame));
+
+    }
 }
 
 
@@ -200,6 +224,10 @@ int main()
     receive_args->control_state = control_state;
 
     pthread_create(&receive_tid, NULL, receive_position, receive_args);
+
+    pthread_t receive_can_tid;
+    pthread_create(&receive_can_tid, NULL, receive_can, &s);
+
     printf("yuh \n");
     while(1){
 
