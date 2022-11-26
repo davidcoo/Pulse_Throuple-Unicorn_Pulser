@@ -13,11 +13,11 @@
 
 /** Configure this **/
 //#define LOCAL_HOST "128.2.57.96" // IP of local interface
-#define LOCAL_HOST "169.254.81.79" // IP of local interface
+#define LOCAL_HOST "169.254.190.42" // IP of local interface
 #define R_PORT 13606
 
 //#define REMOTE_HOST "172.26.72.159"
-#define REMOTE_HOST "169.254.190.42"
+#define REMOTE_HOST "169.254.81.79"
 #define S_PORT 1000
 /** **/
 
@@ -41,8 +41,8 @@ void *send_force(void *arg) {
 
   while (1) {
     usleep(TX_INTERVAL_MS * 1000);
-    printf("Send force %d\n", force);
-    force += 5;
+    //printf("Send force %d\n", force);
+    //force += 5;
     sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
 		    (struct sockaddr *) &servaddr, sizeof(servaddr));
 
@@ -82,7 +82,8 @@ int main() {
                   (struct sockaddr *) &servaddr, &len);
     uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
     memcpy(&state, recvbuf + 4, sizeof(state));
-    printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
+    //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
+    printf("%d | %d | %d | %d | %d\n", state.rgbButtons[4], state.rgbButtons[5], state.rglFSlider[0], state.rglFSlider[1], state.rgbButtons[0]);
   }
 
   return 0;

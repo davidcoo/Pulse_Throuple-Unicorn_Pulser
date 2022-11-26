@@ -37,9 +37,10 @@ typedef struct {
 typedef struct { 
     int sockfd;
     struct sockaddr_in servaddr;
-    control_state_t *control_state_t
+    control_state_t *control_state;
 
-} receive_position_info_t
+} receive_position_info_t;
+
 void *send_force(void *args) {
         // UDP
     int8_t force = 0;
@@ -74,7 +75,7 @@ void *receive_position(void *args){
     receive_position_info_t *receive_args = (receive_position_info_t *)args;
 
     int sockfd = receive_args->sockfd;
-    struct sockadr_in servaddr = receive_args->servaddr;
+    struct sockaddr_in servaddr = receive_args->servaddr;
     control_state_t *control_state = receive_args->control_state;
     // need: sockfd,  servaddr, control_state
     while(control_state->enabled) {
@@ -88,7 +89,7 @@ void *receive_position(void *args){
 }
 
 void send_can(control_state_t *control_state) {
-    // args = control_state
+/*    // args = control_state
     if (control_state->enabled) {
         uint8_t turn_on = 0;
             turn_on = ~turn_on;
@@ -109,7 +110,7 @@ void send_can(control_state_t *control_state) {
                 system("sudo ifconfig can0 down");
             }
         }
-}
+*/}
 
 void *receive_can(void *args) {
     // check at 60 Hz
@@ -127,7 +128,8 @@ int main()
     struct sockaddr_can addr;
     struct ifreq ifr;
     struct can_frame frame;
-    control_state_t *control_state;
+    control_state_t c_state;
+    control_state_t *control_state = &c_state;
 
     int sockfd;
     char buffer[STATE_SIZE+1];
@@ -166,7 +168,7 @@ int main()
         perror("socket PF_CAN failed");
         return 1;
     }
-
+    printf("after 1\n");
     //2. Specify can0 device
     strcpy(ifr.ifr_name, "can0");
     ret = ioctl(s, SIOCGIFINDEX, &ifr);
@@ -175,7 +177,7 @@ int main()
         perror("ioctl failed");
         return 1;
     }
-
+    printf("after 2\n");
     //3. Bind the sockt to can0
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
@@ -184,19 +186,21 @@ int main()
         perror("bind failed");
         return 1;
     }
-
+    printf("after 3 \n");
     control_state->enabled = 1;
     control_state->sending_heartbeat = 1;
 
     pthread_t receive_tid;
     
-    receive_position_info_t *receive_args;
-    receive_args->sockaddr = sockaddr;
+    printf("hi hit here \n");
+    receive_position_info_t r_args;
+    receive_position_info_t *receive_args = &r_args;
+    receive_args->sockfd = sockfd;
     receive_args->servaddr = servaddr;
     receive_args->control_state = control_state;
 
     pthread_create(&receive_tid, NULL, receive_position, receive_args);
-
+    printf("yuh \n");
     while(1){
 
     }
