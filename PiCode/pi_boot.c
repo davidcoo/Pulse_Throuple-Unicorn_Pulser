@@ -118,17 +118,18 @@ void *receive_can(void *args) {
     memset(&frame, 0, sizeof(struct can_frame));
     // need to memset frame
     struct can_filter rfilter[2];
-    s = *((int*)args);
+    int s = *((int*)args);
+    int nbytes;
 
     rfilter[0].can_id = 0x200;
     rfilter[0].can_mask = CAN_SFF_MASK;
     rfilter[1].can_id = 0x300;
     rfilter[1].can_mask = CAN_SFF_MASK;
 
-    setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter))
+    setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter));
 
     while(1){
-        nbytes = read(s, &frame, sizeof(frame);
+        nbytes = read(s, &frame, sizeof(frame));
         if (nbytes > 0){
             printf("can_id = 0x%X\r\ncan_dlc = %d \r\n", frame.can_id, frame.can_dlc);
             int i =0;
