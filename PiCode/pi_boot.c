@@ -31,57 +31,93 @@
 typedef struct {
     uint8_t enabled;
     uint8_t sending_heartbeat;
+    
 } control_state_t;
 
+typedef struct { 
+    int sockfd;
+    struct sockaddr_in servaddr;
+    control_state_t *control_state_t
 
+} receive_position_info_t
 void *send_force(void *args) {
-  int8_t force = 0;
-  int sockfd;
-  struct sockaddr_in servaddr;
+        // UDP
+    int8_t force = 0;
+    int sockfd;
+    struct sockaddr_in servaddr;
 
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_port = htons(S_PORT);
-  servaddr.sin_addr.s_addr = inet_addr(REMOTE_HOST);
-  
-  if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-    perror("failed to create socket");
-    exit(EXIT_FAILURE);
-  }
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(S_PORT);
+    servaddr.sin_addr.s_addr = inet_addr(REMOTE_HOST);
+    
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("failed to create socket");
+        exit(EXIT_FAILURE);
+    }
 
-  while (1) {
-    usleep(TX_INTERVAL_MS * 1000);
-    printf("Send force %d\n", force);
-    force += 5;
-    sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
-		    (struct sockaddr *) &servaddr, sizeof(servaddr));
+    while (1) {
+        usleep(TX_INTERVAL_MS * 1000);
+        printf("Send force %d\n", force);
+        force += 5;
+        sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
+                (struct sockaddr *) &servaddr, sizeof(servaddr));
 
-  }
-}
-
-void *send_heartbeat(void *args) {
-    // args = control_state
-    control_state = (control_state_t *)args;
-    uint8_t turn_on = 0;
-    while (control_state->sending_heartbeat) {
-        turn_on = ~turn_on;
-        // probably will need mutex
-        frame.can_id = 0x200;
-        frame.can_dlc = 8;
-        frame.data[0] = turn_on;
-        frame.data[1] = 0;
-        frame.data[2] = 0;
-        frame.data[3] = 0;
-        frame.data[4] = 0;
-        frame.data[5] = 0;
-        frame.data[6] = 0;
-        frame.data[7] = 0;
-        nbytes = write (s, &frame, sizeof(frame));
-        if (nbytes != sizeof(frame)) {
-            printf("Send error frame[0]\r\n");
-            system("sudo ifconfig can0 down");
-        }
     }
 }
+
+
+void *receive_position(void *args){
+
+
+    DIJOYSTATE2_t state;
+    char recvbuf[sizeof(DIJOYSTATE2_t) + 4];
+    receive_position_info_t *receive_args = (receive_position_info_t *)args;
+
+    int sockfd = receive_args->sockfd;
+    struct sockadr_in servaddr = receive_args->servaddr;
+    control_state_t *control_state = receive_args->control_state;
+    // need: sockfd,  servaddr, control_state
+    while(control_state->enabled) {
+        int n, len;
+        n = recvfrom(sockfd, recvbuf, STATE_SIZE, MSG_WAITALL,
+                    (struct sockaddr *) &servaddr, &len);
+        uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
+        memcpy(&state, recvbuf + 4, sizeof(state));
+        printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
+    }
+}
+
+void send_can(control_state_t *control_state) {
+    // args = control_state
+    if (control_state->enabled) {
+        uint8_t turn_on = 0;
+            turn_on = ~turn_on;
+            // probably will need mutex
+            frame.can_id = 0x100;
+            frame.can_dlc = 8;
+            frame.data[0] = turn_on;
+            frame.data[1] = 0;
+            frame.data[2] = 0;
+            frame.data[3] = 0;
+            frame.data[4] = 0;
+            frame.data[5] = 0;
+            frame.data[6] = 0;
+            frame.data[7] = 0;
+            nbytes = write (s, &frame, sizeof(frame));
+            if (nbytes != sizeof(frame)) {
+                printf("Send error frame[0]\r\n");
+                system("sudo ifconfig can0 down");
+            }
+        }
+}
+
+void *receive_can(void *args) {
+    // check at 60 Hz
+}
+
+
+
+
 
 int main()
 {
@@ -111,10 +147,6 @@ int main()
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
-
-
-    DIJOYSTATE2_t state;
-    char recvbuf[sizeof(DIJOYSTATE2_t) + 4];
     pthread_t send_tid;
     pthread_create(&send_tid, NULL, send_force, NULL);
 
@@ -124,7 +156,6 @@ int main()
     //system("sudo ip link set can0 up type can bitrate %d", BITRATE);
     system("sudo ip link set can0 up type can bitrate 500000");
     system("sudo ifconfig can0 txqueuelen 65536");
-    //system("sudo ifconfig can0 up");
     // probably want to write a check here to make sure that can0 was down and you're not getting one of those weird errors
     printf("pi is connected to can0\r\n");
 
@@ -157,37 +188,16 @@ int main()
     control_state->enabled = 1;
     control_state->sending_heartbeat = 1;
 
-    pthread_t heartbeat_tid;
-    pthread_create(&heartbeat_tid, NULL, send_heartbeat, control_state);
-
-
+    pthread_t receive_tid;
     
-    while(control_state->enabled){
-        int n, len;
-        n = recvfrom(sockfd, recvbuf, STATE_SIZE, MSG_WAITALL,
-                    (struct sockaddr *) &servaddr, &len);
-        uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
-        memcpy(&state, recvbuf + 4, sizeof(state));
-        printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
-            /*
-        if (state.sending_heartbeat) {
-            // make this a function to send the heartbeat 
-            frame.can_id = 0x446;
-            frame.can_dlc = 8;
-            frame.data[0] = 0;
-            frame.data[1] = 0;
-            frame.data[2] = 0;
-            frame.data[3] = 0;
-            frame.data[4] = 0;
-            frame.data[5] = 0;
-            frame.data[6] = 0;
-            frame.data[7] = 0;
-            nbytes = write (s, &frame, sizeof(frame));
-            if (nbytes != sizeof(frame)) {
-                printf("Send error frame[0]\r\n");
-                system("sudo ifconfig can0 down");
-            }
-        }
-	break; */
+    receive_position_info_t *receive_args;
+    receive_args->sockaddr = sockaddr;
+    receive_args->servaddr = servaddr;
+    receive_args->control_state = control_state;
+
+    pthread_create(&receive_tid, NULL, receive_position, receive_args);
+
+    while(1){
+
     }
 }
