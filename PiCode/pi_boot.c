@@ -31,7 +31,7 @@
 typedef struct {
     uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
     uint8_t sending_heartbeat;
-    uint8_t braking_pos;
+    uint8_t brake_pos;
     uint8_t throttle_pos;
     uint8_t steering_pos;
     uint8_t blink_both;
@@ -41,6 +41,7 @@ typedef struct {
 
 typedef struct { 
     int sockfd;
+    int s;
     struct sockaddr_in servaddr;
     control_state_t *control_state;
 
@@ -93,25 +94,32 @@ void *receive_position(void *args){
     }
 }
 
-void send_can(void *args) {
-    control_state_t *control_state = (control_state_t *)args;
+void *send_can(void *args) {
 
+    receive_position_info_t *send_args = (receive_position_info_t *)args;
+    control_state_t *control_state = send_args->control_state;
+    int s = send_args->s;
+    int nbytes;
+    printf("yerrr\n");
     struct can_frame frame;
     memset(&frame, 0, sizeof(struct can_frame));
-
+    printf("woeijweiofj \n");
     frame.can_id = 0x100;
     frame.can_dlc = 8;
-    int turn_on = 0;
+
+   printf("access frame \n");
+   printf("s: %d\n", send_args->s);
+    uint8_t turn_on = 0;
     // change to "started" later
     while (1) {
         if (control_state->sending_heartbeat){
-            turn_on = ~turn_on;
+            turn_on = !turn_on;
             frame.data[0] = control_state->brake_pos;
             frame.data[1] = control_state->throttle_pos;
             frame.data[2] = control_state->steering_pos;
             frame.data[3] = control_state->blink_both;
-            frame.data[4] = turn_on;
-            //frame.data[4] = control_state->blink_left;
+            //frame.data[4] = (uint8_t)1;
+            frame.data[4] = control_state->blink_left;
             frame.data[5] = control_state->blink_right;
             frame.data[6] = 0;
             frame.data[7] = 0;
@@ -240,9 +248,14 @@ int main()
 
     pthread_t receive_can_tid;
     pthread_create(&receive_can_tid, NULL, receive_can, &s);
-
+ 
+    receive_position_info_t s_args;
+    receive_position_info_t *send_args = &s_args;
+    send_args->s = s;
+    send_args->control_state = control_state;
+    printf("s before thread: %d \n", s);
     pthread_t send_can_tid;
-    pthread_create(&send_can_tid, NULL, send_can, (void *)control_state);
+    pthread_create(&send_can_tid, NULL, send_can, (void *)send_args);
 
     printf("yuh \n");
     while(1){
