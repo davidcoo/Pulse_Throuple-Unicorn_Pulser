@@ -33,7 +33,7 @@ uint16_t pot_sense_read(){
 	// read
 	HAL_ADC_Start(&hadc2);
 	uint16_t raw;
-	HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+	HAL_ADC_PollForConversion(&hadc2, 5);
 	raw = HAL_ADC_GetValue(&hadc2);
 	return raw;
 }

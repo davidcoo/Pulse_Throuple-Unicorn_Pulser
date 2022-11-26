@@ -26,6 +26,7 @@
 #include "motor_control.h"
 #include "throuple_can.h"
 #include "adc_sense.h"
+#include "servo_control.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -97,9 +98,11 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
   blinkers_init();
-  motor_init();
+  //motor_init();
+  servo_init();
   can_init();
   current_sense_init();
+  pot_sense_init();
 
   extern QueueHandle_t xQueueCANRx;
 
@@ -132,8 +135,8 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  osThreadDef(canRecieve, can_rx, osPriorityHigh, 0, 128);
-  mcuStatusHandle = osThreadCreate(osThread(canRecieve), NULL);
+//  osThreadDef(canRecieve, can_rx, osPriorityHigh, 0, 128);
+//  mcuStatusHandle = osThreadCreate(osThread(canRecieve), NULL);
 
   /* USER CODE END RTOS_THREADS */
 
@@ -280,25 +283,17 @@ void blink(void const * argument)
 {
   /* USER CODE BEGIN blink */
 	HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
-	set_drive_speed(0);
-	int speed = 95;
+	set_servo_pos(0);
+	int pos = 0;
   /* Infinite loop */
   for(;;)
   {
-	  set_drive_speed(speed);
-	  if (speed == 95){
-		  speed = 93;
+	  pos +=5;
+	  if (pos > 100){
+		  pos = 0;
 	  }
-	  else if (speed == 93){
-		  speed = 90;
-	  }
-	  else if (speed == 90){
-		  speed = 95;
-	  }
-
-	  uint16_t raw = current_sense_read();
-
-	  osDelay(1000);
+	  set_servo_pos(pos);
+	  osDelay(100);
   }
   /* USER CODE END blink */
 }
@@ -324,7 +319,7 @@ void can_rx(void const * argument)
 	  {
 		 if (msg.id == 0x200){
 			 if (msg.msg[0] == 0){
-				 left_blinker_off()
+				 left_blinker_off();
 			 }
 			 else if(msg.msg[0] == 1){
 				 left_blinker_on();
