@@ -25,6 +25,7 @@
 #define S_PORT 1000
 
 #define TX_INTERVAL_MS 300
+#define HEARTBEAT_INTERVAL 300
 #define STATE_SIZE sizeof(DIJOYSTATE2_t)
 
 typedef struct {
@@ -33,7 +34,7 @@ typedef struct {
 } control_state_t;
 
 
-void *send_force(void *arg) {
+void *send_force(void *args) {
   int8_t force = 0;
   int sockfd;
   struct sockaddr_in servaddr;
@@ -57,6 +58,31 @@ void *send_force(void *arg) {
   }
 }
 
+void *send_heartbeat(void *args) {
+    // args = control_state
+    control_state = (control_state_t *)args;
+    uint8_t turn_on = 0;
+    while (control_state->sending_heartbeat) {
+        turn_on = ~turn_on;
+        // probably will need mutex
+        frame.can_id = 0x200;
+        frame.can_dlc = 8;
+        frame.data[0] = turn_on;
+        frame.data[1] = 0;
+        frame.data[2] = 0;
+        frame.data[3] = 0;
+        frame.data[4] = 0;
+        frame.data[5] = 0;
+        frame.data[6] = 0;
+        frame.data[7] = 0;
+        nbytes = write (s, &frame, sizeof(frame));
+        if (nbytes != sizeof(frame)) {
+            printf("Send error frame[0]\r\n");
+            system("sudo ifconfig can0 down");
+        }
+    }
+}
+
 int main()
 {
     // first set up CAN
@@ -65,7 +91,7 @@ int main()
     struct sockaddr_can addr;
     struct ifreq ifr;
     struct can_frame frame;
-    control_state_t control_state;
+    control_state_t *control_state;
 
     int sockfd;
     char buffer[STATE_SIZE+1];
@@ -128,9 +154,15 @@ int main()
         return 1;
     }
 
-    control_state.enabled = 1;
-    control_state.sending_heartbeat = 1;
-    while(control_state.enabled){
+    control_state->enabled = 1;
+    control_state->sending_heartbeat = 1;
+
+    pthread_t heartbeat_tid;
+    pthread_create(&heartbeat_tid, NULL, send_heartbeat, control_state);
+
+
+    
+    while(control_state->enabled){
         int n, len;
         n = recvfrom(sockfd, recvbuf, STATE_SIZE, MSG_WAITALL,
                     (struct sockaddr *) &servaddr, &len);
