@@ -9,6 +9,8 @@
 #include <linux/can/raw.h>
 #include "can_header_temp.h"
 
+#define BITRATE 500000
+
 typedef struct {
     uint8_t enabled;
     uint8_t sending_heartbeat;
@@ -26,9 +28,16 @@ int main()
 
     memset(&frame, 0, sizeof(struct can_frame));
 
+    //system("sudo ip link set can0 up type can bitrate %d", BITRATE);
+    system("sudo ip link set can0 up type can bitrate 500000");
+    system("sudo ifconfig can0 txqueuelen 65536");
+    //system("sudo ifconfig can0 up");
+    // probably want to write a check here to make sure that can0 was down and you're not getting one of those weird errors
+    printf("pi is connected to can0\r\n");
 
     //1. Create Socket
     s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    printf("socket: %d", s);
     if (s < 0) {
         perror("socket PF_CAN failed");
         return 1;
@@ -58,9 +67,8 @@ int main()
     state.sending_heartbeat = 1;
     while(state.enabled){
         if (state.sending_heartbeat) {
-            // make this a function to send the heartbeat
-	    /* 
-            frame.can_id = 0x100;
+            // make this a function to send the heartbeat 
+            frame.can_id = 0x446;
             frame.can_dlc = 8;
             frame.data[0] = 0;
             frame.data[1] = 0;
@@ -75,6 +83,7 @@ int main()
                 printf("Send error frame[0]\r\n");
                 system("sudo ifconfig can0 down");
             }
-        } */
+        }
+	break; 
     }
 }
