@@ -4,52 +4,22 @@ const uint8_t MESSAGE_LEN = 8;
 const uint16_t HEARTBEAT_CONTROL_ID = 0x100;
 const uint16_t HEARTBEAT_FRONT_ID = 0x200;
 const uint16_t HEARTBEAT_REAR_ID = 0x300;
-const uint16_t BLINKER_DATA_ID = 0x400;
-const uint16_t COLLISION_MSG_ID = 0x500;
 
 typedef struct {
-    uint16_t id;
-} can_header_t;
-
-
-typedef struct {
-    uint16_t steering_pos;
-    uint16_t brake_pos;
-    uint16_t accel_pos;
-} heartbeat_control_data_t;
-
-typedef enum {
-    BLINK_OFF = 0,
-    BLINK_LEFT = 1,
-    BLINK_RIGHT = 2,
-} blinker_state_e;
+    uint8_t brake_pos; // give 255 for full brake
+    uint8_t throttle_pos;
+    uint8_t steering_pos; // 128 as the middle 
+    uint8_t blink_both; // 0 1
+    uint8_t blink_left; // 0 1
+    uint8_t blink_right; // 0 1
+} heartbeat_control_data_t; // 10 Hz
 
 typedef struct {
-    blinker_state_e blinker_state;
-} blinker_data_t;
-
-typedef enum {
-    COLLISION_NONE = 0,
-    COLLISION_20 = 1,
-    COLLISION_10 = 2,
-} collision_state_e;
-
-typedef enum {
-    COLLISION_FRONT = 0,
-    COLLISION_LEFT = 1,
-    COLLISION_RIGHT = 2,
-} collision_dir_e;
-
-typedef struct {
-    collision_state_e collision_state;
-    collision_dir_e collision_dir;
-} collision_msg_data_t;
-
-typedef struct {
-    uint16_t servo_current;
-    uint16_t servo_pos;
+    uint16_t servo_current; // 2 bytes, raw data
+    uint16_t servo_pos; // 2 bytes, raw data
 } heartbeat_front_data_t;
 
+
 typedef struct {
-    uint16_t heartbeat;
+    uint8_t heartbeat;
 } heartbeat_rear_data_t;
