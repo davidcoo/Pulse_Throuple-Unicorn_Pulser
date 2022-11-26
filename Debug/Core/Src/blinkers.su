@@ -1,9 +1,10 @@
 ../Core/Src/blinkers.c:13:13:Error_Handler	4	static,ignoring_inline_asm
 ../Core/Src/blinkers.c:31:13:MX_TIM3_Init	48	static
-../Core/Src/blinkers.c:80:6:blinkers_init	8	static
-../Core/Src/blinkers.c:85:6:left_blinker_on	8	static
-../Core/Src/blinkers.c:90:6:left_blinker_off	8	static
-../Core/Src/blinkers.c:94:6:right_blinker_on	8	static
-../Core/Src/blinkers.c:99:6:right_blinker_off	8	static
-../Core/Src/blinkers.c:104:6:hazards_on	8	static
-../Core/Src/blinkers.c:109:6:hazards_off	8	static
+../Core/Src/blinkers.c:85:6:blinkers_init	8	static
+../Core/Src/blinkers.c:89:6:set_blinkers	16	static
+../Core/Src/blinkers.c:113:6:left_blinker_on	8	static
+../Core/Src/blinkers.c:119:6:left_blinker_off	8	static
+../Core/Src/blinkers.c:124:6:right_blinker_on	8	static
+../Core/Src/blinkers.c:130:6:right_blinker_off	8	static
+../Core/Src/blinkers.c:136:6:hazards_on	8	static
+../Core/Src/blinkers.c:142:6:hazards_off	8	static

@@ -48,8 +48,11 @@
 
 osThreadId defaultTaskHandle;
 osThreadId mcuStatusHandle;
+osThreadId motorControlHandle;
 /* USER CODE BEGIN PV */
-
+osThreadId canRecieveHandle;
+osThreadId selfTestHandle;
+static QueueHandle_t xQueueMotor;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -57,7 +60,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 void StartDefaultTask(void const * argument);
 void blink(void const * argument);
-
+void motor_controller(void const * argument);
+void self_test(void const * argument);
 
 
 
@@ -98,8 +102,7 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
   blinkers_init();
-  //motor_init();
-  servo_init();
+  //servo_init();
   can_init();
   current_sense_init();
   pot_sense_init();
@@ -130,13 +133,20 @@ int main(void)
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of mcuStatus */
-  osThreadDef(mcuStatus, blink, osPriorityLow, 0, 128);
+  osThreadDef(mcuStatus, blink, osPriorityNormal, 0, 128);
   mcuStatusHandle = osThreadCreate(osThread(mcuStatus), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+
 //  osThreadDef(canRecieve, can_rx, osPriorityHigh, 0, 128);
-//  mcuStatusHandle = osThreadCreate(osThread(canRecieve), NULL);
+//  canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
+//
+//  osThreadDef(motorControl, motor_controller, osPriorityHigh, 0, 128);
+//  motorControlHandle = osThreadCreate(osThread(motorControl), NULL);
+
+  osThreadDef(selfTest, self_test, osPriorityNormal, 0, 128);
+  selfTestHandle = osThreadCreate(osThread(selfTest), NULL);
 
   /* USER CODE END RTOS_THREADS */
 
@@ -282,18 +292,25 @@ void StartDefaultTask(void const * argument)
 void blink(void const * argument)
 {
   /* USER CODE BEGIN blink */
+//	motor_init();
 	HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
-	set_servo_pos(0);
+	//set_servo_pos(0);
 	int pos = 0;
+//	set_drive_speed(70);
   /* Infinite loop */
   for(;;)
   {
-	  pos +=5;
-	  if (pos > 100){
-		  pos = 0;
-	  }
-	  set_servo_pos(pos);
-	  osDelay(100);
+//	  set_drive_speed(pos);
+//	  if (pos == 100){
+//		  pos = 50;
+//	  }
+//	  else if (pos == 50){
+//		  pos = 0;
+//	  }
+//	  else if (pos == 0){
+//		  pos = 50;
+//	  }
+	  osDelay(1000);
   }
   /* USER CODE END blink */
 }
@@ -308,6 +325,7 @@ void can_rx(void const * argument)
 {
   /* USER CODE BEGIN blink */
 	can_msg_t msg;
+	xQueueMotor = xQueueCreate( 10,sizeof(pi_motor_command));
   /* Infinite loop */
   for(;;)
   {
@@ -317,22 +335,100 @@ void can_rx(void const * argument)
 						 &( msg ),
 						 ( TickType_t ) 0 ))
 	  {
-		 if (msg.id == 0x200){
-			 if (msg.msg[0] == 0){
-				 left_blinker_off();
-			 }
-			 else if(msg.msg[0] == 1){
-				 left_blinker_on();
-			 }
+		 if (msg.id == 0x100){
+			 set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
+			 pi_motor_command motor_command;
+			 motor_command.brake = msg.msg[0];
+			 motor_command.throttle = msg.msg[1];
+			 xQueueSend(xQueueMotor, &motor_command,( TickType_t ) 10);
 		 }
 		 else if (msg.id == 0x446){
 			 HAL_GPIO_TogglePin(MCU_IND_GPIO_Port, MCU_IND_Pin);
 		 }
 	  }
 	}
+	osDelay(10);
   }
   /* USER CODE END blink */
 }
+
+// Motor Controller Task
+void motor_controller(void const * argument){
+	motor_init();
+	pi_motor_command motor_command;
+	motor_direction dir;
+	uint8_t speed;
+	for(;;){
+		// Receive State
+
+		// Receive CAN
+		if (xQueueMotor != NULL){
+			if (xQueueReceive(xQueueMotor, &motor_command, ( TickType_t ) 0)){
+				// Received motor message
+				if (motor_command.brake!= 0){
+					dir = BRAKE;
+					speed = motor_command.brake;
+				}
+				else {
+					dir = FORWARD;
+					speed = motor_command.throttle;
+				}
+				// Adjust motor speed
+				if (dir == FORWARD){
+					set_drive_speed(speed);
+				}
+				else if (dir == BRAKE){
+					set_brake_speed(speed);
+				}
+			}
+		}
+		osDelay(10);
+	}
+}
+
+// Self-Test Button Task
+void self_test(void const * argument){
+	zone_state_e zone_state = NORMAL;
+	uint8_t button_debounce = 0;
+	uint8_t button_release = 0;
+	uint8_t button_state = 0;
+
+	for (;;){
+		GPIO_PinState button = HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin);
+		// debounce button
+		if (button == GPIO_PIN_SET){
+			button_debounce = (button_debounce << 1) | 1;
+		}
+		else {
+			button_debounce = button_debounce << 1;
+		}
+		if (button_debounce == 0xFF && button_state == 0){
+			button_state = 1;
+		}
+		else if (button_debounce == 0 && button_state == 1){
+			button_state = 0;
+			button_release = 1;
+		}
+		switch (zone_state) {
+			case NORMAL:
+				if (button_state == 1) {
+					HAL_GPIO_TogglePin(MCU_IND_GPIO_Port,MCU_IND_Pin);
+					zone_state = ERROR_BUTTON;
+					button_release = 0;
+				}
+				break;
+			case ERROR_BUTTON:
+				if (button_state == 1 && button_release == 1) {
+					HAL_GPIO_TogglePin(MCU_IND_GPIO_Port,MCU_IND_Pin);
+					zone_state = NORMAL;
+					button_release = 0;
+				}
+				break;
+		}
+		osDelay(10);
+	}
+}
+
 
 
 /**

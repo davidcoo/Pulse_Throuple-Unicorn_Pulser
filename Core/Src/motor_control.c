@@ -48,8 +48,8 @@ void set_motor_direction(motor_direction direction){
 // Set Speed of the motor
 void set_motor_speed(uint32_t percent_speed){
 	// Motor speed PWM 50 Hz 100 Ticks at 5000 Hz
-	TIM2->CCR4 = percent_speed;
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
+	TIM2->CCR4 = 100-percent_speed;
+      	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 }
 
 // Set Speed of motor in forward direction

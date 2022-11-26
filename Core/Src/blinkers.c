@@ -76,38 +76,72 @@ static void MX_TIM3_Init(void)
 
 }
 
+uint8_t hazard_state = 0;
+uint8_t left_state  = 0;
+uint8_t right_state = 0;
+
+
 
 void blinkers_init(){
 	MX_TIM3_Init();
+}
+
+void set_blinkers(uint8_t hazard, uint8_t right, uint8_t left){
+	if (hazard == 1 && hazard_state == 0){
+		hazards_on();
+	}
+	else if (hazard == 0 && hazard_state == 1){
+		hazards_off();
+	}
+	else if (hazard == 0){
+		if (left == 1 && left_state == 0){
+			left_blinker_on();
+		}
+		else if (left == 0 && left_state == 1){
+			left_blinker_off();
+		}
+		if (right == 1 && right_state == 0){
+			right_blinker_on();
+		}
+		else if (right == 0 && right_state == 1){
+			right_blinker_off();
+		}
+	}
 }
 
 
 void left_blinker_on(){
 	TIM3->CCR2 = 500;
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+	left_state = 1;
 }
 
 void left_blinker_off(){
 	HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
+	left_state = 0;
 }
 
 void right_blinker_on(){
 	TIM3->CCR4 = 500;
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
+	right_state = 1;
 }
 
 void right_blinker_off(){
 	HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_4);
+	right_state = 0;
 }
 
 
 void hazards_on(){
 	left_blinker_on();
 	right_blinker_on();
+	hazard_state = 1;
 }
 
 void hazards_off(){
 	left_blinker_off();
 	right_blinker_off();
+	hazard_state = 0;
 }
 

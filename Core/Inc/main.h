@@ -36,6 +36,16 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+typedef struct {
+	uint8_t brake;
+	uint8_t throttle;
+}pi_motor_command;
+
+typedef enum {
+	ERROR_BUTTON = 1,
+	ERROR_HB = 2,
+	NORMAL = 3,
+} zone_state_e;
 
 /* USER CODE END ET */
 
