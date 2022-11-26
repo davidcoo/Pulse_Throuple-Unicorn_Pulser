@@ -29,9 +29,14 @@
 #define STATE_SIZE sizeof(DIJOYSTATE2_t)
 
 typedef struct {
-    uint8_t enabled;
+    uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
     uint8_t sending_heartbeat;
-    
+    uint8_t braking_pos;
+    uint8_t throttle_pos;
+    uint8_t steering_pos;
+    uint8_t blink_both;
+    uint8_t blink_right;
+    uint8_t blink_left;
 } control_state_t;
 
 typedef struct { 
@@ -88,20 +93,26 @@ void *receive_position(void *args){
     }
 }
 
-void send_can(control_state_t *control_state) {
-/*    // args = control_state
-    if (control_state->enabled) {
-        uint8_t turn_on = 0;
+void send_can(void *args) {
+    control_state_t *control_state = (control_state_t *)args;
+
+    struct can_frame frame;
+    memset(&frame, 0, sizeof(struct can_frame));
+
+    frame.can_id = 0x100;
+    frame.can_dlc = 8;
+    int turn_on = 0;
+    // change to "started" later
+    while (1) {
+        if (control_state->sending_heartbeat){
             turn_on = ~turn_on;
-            // probably will need mutex
-            frame.can_id = 0x100;
-            frame.can_dlc = 8;
-            frame.data[0] = turn_on;
-            frame.data[1] = 0;
-            frame.data[2] = 0;
-            frame.data[3] = 0;
-            frame.data[4] = 0;
-            frame.data[5] = 0;
+            frame.data[0] = control_state->brake_pos;
+            frame.data[1] = control_state->throttle_pos;
+            frame.data[2] = control_state->steering_pos;
+            frame.data[3] = control_state->blink_both;
+            frame.data[4] = turn_on;
+            //frame.data[4] = control_state->blink_left;
+            frame.data[5] = control_state->blink_right;
             frame.data[6] = 0;
             frame.data[7] = 0;
             nbytes = write (s, &frame, sizeof(frame));
@@ -110,7 +121,8 @@ void send_can(control_state_t *control_state) {
                 system("sudo ifconfig can0 down");
             }
         }
-*/}
+    }
+}
 
 void *receive_can(void *args) {
 
@@ -224,10 +236,13 @@ int main()
     receive_args->servaddr = servaddr;
     receive_args->control_state = control_state;
 
-    pthread_create(&receive_tid, NULL, receive_position, receive_args);
+    pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
 
     pthread_t receive_can_tid;
     pthread_create(&receive_can_tid, NULL, receive_can, &s);
+
+    pthread_t send_can_tid;
+    pthread_create(&send_can_tid, NULL, send_can, (void *)control_state);
 
     printf("yuh \n");
     while(1){
