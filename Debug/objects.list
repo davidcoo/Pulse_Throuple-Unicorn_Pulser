@@ -1,3 +1,4 @@
+"./Core/Src/adc_sense.o"
 "./Core/Src/blinkers.o"
 "./Core/Src/bxcan.o"
 "./Core/Src/freertos.o"

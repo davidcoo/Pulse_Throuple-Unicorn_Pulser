@@ -36,7 +36,7 @@ void can_init(){
 
 // Interrupt Handler for receiving a can message.
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
-	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
+ 	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
 	can_msg_t msg;
 	BaseType_t xHigherPriorityTaskWoken;
 	xHigherPriorityTaskWoken = pdFALSE;
@@ -95,7 +95,7 @@ static void MX_CAN_Init(void)
 	canfilterconfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
 	canfilterconfig.FilterIdHigh = 0x446<<5;
 	canfilterconfig.FilterIdLow = 0;
-	canfilterconfig.FilterMaskIdHigh = 0x446<<5;
+	canfilterconfig.FilterMaskIdHigh = 0x100<<5;
 	canfilterconfig.FilterMaskIdLow = 0x0000;
 	canfilterconfig.FilterMode = CAN_FILTERMODE_IDLIST;
 	canfilterconfig.FilterScale = CAN_FILTERSCALE_16BIT;

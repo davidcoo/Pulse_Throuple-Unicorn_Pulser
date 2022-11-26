@@ -1,0 +1,7 @@
+../Core/Src/adc_sense.c:15:6:current_sense_init	8	static
+../Core/Src/adc_sense.c:19:10:current_sense_read	16	static
+../Core/Src/adc_sense.c:28:6:pot_sense_init	8	static
+../Core/Src/adc_sense.c:32:10:pot_sense_read	16	static
+../Core/Src/adc_sense.c:46:13:MX_ADC1_Init	24	static
+../Core/Src/adc_sense.c:93:13:MX_ADC2_Init	24	static
+../Core/Src/adc_sense.c:135:13:Error_Handler	4	static,ignoring_inline_asm
