@@ -4,17 +4,56 @@
 #include <unistd.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
+#include<netinet/in.h>
+#include "pthread.h"
+#include <inttypes.h>
+#include "state.h"
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include "can_header_temp.h"
 
 #define BITRATE 500000
+#define LOCAL_HOST "172.20.10.2"
+#define R_PORT 13606
+
+#define REMOTE_HOST "172.20.10.3"
+#define S_PORT 1000
+
+#define TX_INTERVAL_MS 300
+#define STATE_SIZE sizeof(DIJOYSTATE2_t)
 
 typedef struct {
     uint8_t enabled;
     uint8_t sending_heartbeat;
 } control_state_t;
+
+
+void *send_force(void *arg) {
+  int8_t force = 0;
+  int sockfd;
+  struct sockaddr_in servaddr;
+
+  servaddr.sin_family = AF_INET;
+  servaddr.sin_port = htons(S_PORT);
+  servaddr.sin_addr.s_addr = inet_addr(REMOTE_HOST);
+  
+  if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    perror("failed to create socket");
+    exit(EXIT_FAILURE);
+  }
+
+  while (1) {
+    usleep(TX_INTERVAL_MS * 1000);
+    printf("Send force %d\n", force);
+    force += 5;
+    sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
+		    (struct sockaddr *) &servaddr, sizeof(servaddr));
+
+  }
+}
 
 int main()
 {
@@ -25,6 +64,31 @@ int main()
     struct ifreq ifr;
     struct can_frame frame;
     control_state_t state;
+
+    int sockfd;
+    char buffer[STATE_SIZE+1];
+
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("failed to create socket");
+        exit(EXIT_FAILURE);
+    }
+
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(R_PORT);
+    servaddr.sin_addr.s_addr = inet_addr(LOCAL_HOST);
+
+    if (bind(sockfd, (const struct sockaddr *) &servaddr, 
+                sizeof(servaddr)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+
+    DIJOYSTATE2_t state;
+    char recvbuf[sizeof(DIJOYSTATE2_t) + 4];
+    pthread_t send_tid;
+    pthread_create(&send_tid, NULL, send_force, NULL);
+
 
     memset(&frame, 0, sizeof(struct can_frame));
 
@@ -66,6 +130,13 @@ int main()
     state.enabled = 1;
     state.sending_heartbeat = 1;
     while(state.enabled){
+        int n, len;
+        n = recvfrom(sockfd, recvbuf, STATE_SIZE, MSG_WAITALL,
+                    (struct sockaddr *) &servaddr, &len);
+        uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
+        memcpy(&state, recvbuf + 4, sizeof(state));
+        printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
+            /*
         if (state.sending_heartbeat) {
             // make this a function to send the heartbeat 
             frame.can_id = 0x446;
@@ -84,6 +155,6 @@ int main()
                 system("sudo ifconfig can0 down");
             }
         }
-	break; 
+	break; */
     }
 }

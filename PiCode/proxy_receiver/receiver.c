@@ -13,11 +13,11 @@
 
 /** Configure this **/
 //#define LOCAL_HOST "128.2.57.96" // IP of local interface
-#define LOCAL_HOST "172.20.10.2" // IP of local interface
+#define LOCAL_HOST "169.254.81.79" // IP of local interface
 #define R_PORT 13606
 
 //#define REMOTE_HOST "172.26.72.159"
-#define REMOTE_HOST "172.20.10.3"
+#define REMOTE_HOST "169.254.190.42"
 #define S_PORT 1000
 /** **/
 
