@@ -14,6 +14,7 @@
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include "can_header_temp.h"
+#include <time.h>
 
 #define BITRATE 500000
 //#define LOCAL_HOST "169.254.81.79"
@@ -27,6 +28,11 @@
 #define TX_INTERVAL_MS 300
 #define HEARTBEAT_INTERVAL 300
 #define STATE_SIZE sizeof(DIJOYSTATE2_t)
+
+struct period_info {
+    struct timespec next_period;
+    long period_ns;
+};
 
 typedef struct {
     uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
@@ -47,8 +53,36 @@ typedef struct {
 
 } receive_position_info_t;
 
+static void inc_period(struct period_info *pinfo) 
+{
+    pinfo->next_period.tv_nsec += pinfo->period_ns;
+ 
+    while (pinfo->next_period.tv_nsec >= 1000000000) {
+        /* timespec nsec overflow */
+        pinfo->next_period.tv_sec++;
+        pinfo->next_period.tv_nsec -= 1000000000;
+    }
+}
+ 
+static void periodic_task_init(struct period_info *pinfo, long period_ns)
+{
+    // period in ns
+    pinfo->period_ns = period_ns;
+ 
+    // initialize next period to current time
+    clock_gettime(CLOCK_MONOTONIC, &(pinfo->next_period));
+}
+
+static void wait_rest_of_period(struct period_info *pinfo)
+{
+    inc_period(pinfo);
+ 
+    /* for simplicity, ignoring possibilities of signal wakes */
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &pinfo->next_period, NULL);
+}
+ 
 void *send_force(void *args) {
-        // UDP
+    // UDP
     int8_t force = 0;
     int sockfd;
     struct sockaddr_in servaddr;
@@ -71,7 +105,6 @@ void *send_force(void *args) {
 
     }
 }
-
 
 void *receive_position(void *args){
 
@@ -106,9 +139,11 @@ void *send_can(void *args) {
     printf("woeijweiofj \n");
     frame.can_id = 0x100;
     frame.can_dlc = 8;
+    struct period_info pinfo;
+    periodic_task_init(&pinfo, 20000000); // Period 20ms
 
-   printf("access frame \n");
-   printf("s: %d\n", send_args->s);
+    printf("access frame \n");
+    printf("s: %d\n", send_args->s);
     uint8_t turn_on = 0;
     // change to "started" later
     while (1) {
@@ -129,6 +164,7 @@ void *send_can(void *args) {
                 system("sudo ifconfig can0 down");
             }
         }
+        wait_rest_of_period(&pinfo);
     }
 }
 
@@ -140,6 +176,9 @@ void *receive_can(void *args) {
     struct can_filter rfilter[2];
     int s = *((int*)args);
     int nbytes;
+    // Make periodic
+    struct period_info pinfo;
+    periodic_task_init(&pinfo, 10000000); //10 ms period
 
     rfilter[0].can_id = 0x200;
     rfilter[0].can_mask = CAN_SFF_MASK;
@@ -153,17 +192,14 @@ void *receive_can(void *args) {
         if (nbytes > 0){
             printf("can_id = 0x%X\r\ncan_dlc = %d \r\n", frame.can_id, frame.can_dlc);
             int i =0;
-            for(i = 0; i < 8; i++)
+            for(i = 0; i < 8; i++) {
                 printf("data[%d] = %d\r\n", i, frame.data[i]);
+            }
         }
         memset(&frame, 0, sizeof(struct can_frame));
-
+        wait_rest_of_period(&pinfo);
     }
 }
-
-
-
-
 
 int main()
 {
@@ -200,13 +236,14 @@ int main()
 
     memset(&frame, 0, sizeof(struct can_frame));
 
+    // Bring up CAN bus
     //system("sudo ip link set can0 up type can bitrate %d", BITRATE);
     system("sudo ip link set can0 up type can bitrate 500000");
     system("sudo ifconfig can0 txqueuelen 65536");
     // probably want to write a check here to make sure that can0 was down and you're not getting one of those weird errors
     printf("pi is connected to can0\r\n");
 
-    //1. Create Socket
+    //1. Create Socket for CAN
     s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     printf("socket: %d \n", s);
     if (s < 0) {
@@ -232,11 +269,11 @@ int main()
         return 1;
     }
     printf("after 3 \n");
+
+    // Init state vars
     control_state->enabled = 1;
     control_state->sending_heartbeat = 1;
-
-    pthread_t receive_tid;
-    
+ 
     printf("hi hit here \n");
     receive_position_info_t r_args;
     receive_position_info_t *receive_args = &r_args;
@@ -244,11 +281,15 @@ int main()
     receive_args->servaddr = servaddr;
     receive_args->control_state = control_state;
 
+    // Init steering wheel communication thread
+    pthread_t receive_tid;
     pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
 
+    // Init CAN RX thread
     pthread_t receive_can_tid;
     pthread_create(&receive_can_tid, NULL, receive_can, &s);
- 
+
+    // Init CAN TX thread
     receive_position_info_t s_args;
     receive_position_info_t *send_args = &s_args;
     send_args->s = s;
