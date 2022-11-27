@@ -43,6 +43,10 @@ typedef struct {
     uint8_t blink_both;
     uint8_t blink_right;
     uint8_t blink_left;
+    uint16_t raw_steering;
+    uint16_t raw_throttle;
+    uint16_t raw_brake;
+    pthread_mutex_t mux_raw; // mutex
 } control_state_t;
 
 typedef struct { 
@@ -123,20 +127,35 @@ void *receive_position(void *args){
                     (struct sockaddr *) &servaddr, &len);
         uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
         memcpy(&state, recvbuf + 4, sizeof(state));
-        printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
+        pthread_mutex_lock(&(control_state->mux_raw));
+        control_state->raw_brake = state.lRz;
+        control_state->raw_steering = state.lX;
+        contorl_state->raw_throttle = state.lY;
+        pthread_mutex_unlock(&(control_state->mux-raw));
+        //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
     }
 }
 
-void *send_can(void *args) {
+void *processor(void *args) {
+    control_state_t *control_state = (control_state_t *)args;
 
+
+    // convert position into 0-255 (0-127 left, 129-255 right, 128 is middle) // create some mapping function
+    // convert throttle into 1-100
+    // convert brake into 1-100
+    
+    // save back into control state
+
+}
+
+void *send_can(void *args) {
+    //make this periodic 
     receive_position_info_t *send_args = (receive_position_info_t *)args;
     control_state_t *control_state = send_args->control_state;
     int s = send_args->s;
     int nbytes;
-    printf("yerrr\n");
     struct can_frame frame;
     memset(&frame, 0, sizeof(struct can_frame));
-    printf("woeijweiofj \n");
     frame.can_id = 0x100;
     frame.can_dlc = 8;
     struct period_info pinfo;
@@ -144,8 +163,8 @@ void *send_can(void *args) {
 
     printf("access frame \n");
     printf("s: %d\n", send_args->s);
+    
     uint8_t turn_on = 0;
-    // change to "started" later
     while (1) {
         if (control_state->sending_heartbeat){
             turn_on = !turn_on;
@@ -153,7 +172,6 @@ void *send_can(void *args) {
             frame.data[1] = control_state->throttle_pos;
             frame.data[2] = control_state->steering_pos;
             frame.data[3] = control_state->blink_both;
-            //frame.data[4] = (uint8_t)1;
             frame.data[4] = control_state->blink_left;
             frame.data[5] = control_state->blink_right;
             frame.data[6] = 0;
@@ -199,6 +217,10 @@ void *receive_can(void *args) {
         memset(&frame, 0, sizeof(struct can_frame));
         wait_rest_of_period(&pinfo);
     }
+
+    // option 1: check off the heartbeat categories
+
+    // option 2: forward the force
 }
 
 int main()
@@ -274,12 +296,24 @@ int main()
     control_state->enabled = 1;
     control_state->sending_heartbeat = 1;
  
+    control_state->brake_pos = 0;
+    control_state->throttle_pos = 0;
+    control_state->steering_pos = 0;
+    control_state->blink_both = 0;
+    control_state->blink_right = 0;
+    control_state->blink_left = 0;
+
+    pthread_t receive_tid;
+    
     printf("hi hit here \n");
     receive_position_info_t r_args;
     receive_position_info_t *receive_args = &r_args;
     receive_args->sockfd = sockfd;
     receive_args->servaddr = servaddr;
     receive_args->control_state = control_state;
+
+    /* initialize a mutex to its default value */
+    pthread_mutex_init(&(control_state->mux_raw), NULL);
 
     // Init steering wheel communication thread
     pthread_t receive_tid;
