@@ -53,7 +53,9 @@ osThreadId motorControlHandle;
 osThreadId canRecieveHandle;
 osThreadId canTransmitHandle;
 osThreadId selfTestHandle;
+osThreadId steeringHandle;
 static QueueHandle_t xQueueMotor;
+static QueueHandle_t xQueueSteering;
 static QueueHandle_t xQueueMotorState;
 static QueueHandle_t xQueueCANState;
 /* USER CODE END PV */
@@ -65,12 +67,14 @@ void StartDefaultTask(void const * argument);
 void blink(void const * argument);
 void motor_controller(void const * argument);
 void self_test(void const * argument);
-
+void steering_task(void const * argument);
 
 
 /* USER CODE END PFP */
-void can_rx(void const * argument);
-void can_tx(void const * argument);
+void can_rx_rear(void const * argument);
+void can_rx_front(void const * argument);
+void can_tx_rear(void const * argument);
+void can_tx_front(void const * argument);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
@@ -110,15 +114,25 @@ int main(void)
   /* USER CODE BEGIN 2 */
   blinkers_init();
   can_init();
-  // Front Zone is reset and Rear is set
-  if (zone_indicator == GPIO_PIN_SET){ // Rear
+  // Front Zone is set and Rear is reset (re re)
+  if (zone_indicator == GPIO_PIN_RESET){ // Rear
 	osThreadDef(motorControl, motor_controller, osPriorityHigh, 0, 128);
 	motorControlHandle = osThreadCreate(osThread(motorControl), NULL);
+	osThreadDef(canRecieve, can_rx_rear, osPriorityHigh, 0, 128);
+	canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
+	osThreadDef(canTransmit, can_tx_rear, osPriorityNormal, 0, 128);
+	canTransmitHandle = osThreadCreate(osThread(canTransmit), NULL);
   }
   else{ // Front
 	servo_init();
 	current_sense_init();
 	pot_sense_init();
+	osThreadDef(canRecieve, can_rx_front, osPriorityHigh, 0, 128);
+	canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
+	osThreadDef(steering, steering_task, osPriorityHigh, 0, 128);
+	steeringHandle = osThreadCreate(osThread(steering), NULL);
+	osThreadDef(canTransmit, can_tx_front, osPriorityNormal, 0, 128);
+	canTransmitHandle = osThreadCreate(osThread(canTransmit), NULL);
   }
 
 
@@ -154,15 +168,13 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
 
-  osThreadDef(canRecieve, can_rx, osPriorityHigh, 0, 128);
-  canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
+
 
 
   osThreadDef(selfTest, self_test, osPriorityNormal, 0, 128);
   selfTestHandle = osThreadCreate(osThread(selfTest), NULL);
 
-  osThreadDef(canTransmit, can_tx, osPriorityNormal, 0, 128);
-  canTransmitHandle = osThreadCreate(osThread(canTransmit), NULL);
+
 
   /* USER CODE END RTOS_THREADS */
 
@@ -276,60 +288,6 @@ static void MX_GPIO_Init(void)
 
 }
 
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void const * argument)
-{
-  /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(100);
-  }
-  /* USER CODE END 5 */
-}
-
-/* USER CODE BEGIN Header_blink */
-/**
-* @brief Function implementing the mcuStatus thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_blink */
-void blink(void const * argument)
-{
-  /* USER CODE BEGIN blink */
-//	motor_init();
-	//HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
-	//set_servo_pos(0);
-	//int pos = 0;
-//	set_drive_speed(70);
-  /* Infinite loop */
-  for(;;)
-  {
-//	  set_drive_speed(pos);
-//	  if (pos == 100){
-//		  pos = 50;
-//	  }
-//	  else if (pos == 50){
-//		  pos = 0;
-//	  }
-//	  else if (pos == 0){
-//		  pos = 50;
-//	  }
-	  osDelay(1000);
-  }
-  /* USER CODE END blink */
-}
 
 /**
 * @brief Function implementing the can receive thread.
@@ -337,7 +295,7 @@ void blink(void const * argument)
 * @retval None
 */
 /* USER CODE END Header_blink */
-void can_rx(void const * argument)
+void can_rx_rear(void const * argument)
 {
   /* USER CODE BEGIN blink */
 	can_msg_t msg;
@@ -369,17 +327,47 @@ void can_rx(void const * argument)
 }
 
 
+void can_rx_front(void const * argument)
+{
+  /* USER CODE BEGIN blink */
+	can_msg_t msg;
+	xQueueSteering = xQueueCreate( 10,sizeof(uint8_t));
+  /* Infinite loop */
+  for(;;)
+  {
+	if( xQueueCANRx != NULL )
+	{
+	  if( xQueueReceive( xQueueCANRx,
+						 &( msg ),
+						 ( TickType_t ) 0 ))
+	  {
+		 if (msg.id == 0x100){
+			 set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
+			 uint8_t steering_angle = msg.msg[2];
+			 xQueueSend(xQueueSteering, &steering_angle,( TickType_t ) 10);
+		 }
+		 else if (msg.id == 0x446){
+			 HAL_GPIO_TogglePin(MCU_IND_GPIO_Port, MCU_IND_Pin);
+		 }
+	  }
+	}
+	osDelay(10);
+  }
+  /* USER CODE END blink */
+}
+
+
 /**
 * @brief Function implementing the can transmit thread.
 * @param argument: Not used
 * @retval None
 */
 /* USER CODE END Header_blink */
-void can_tx(void const * argument)
+void can_tx_rear(void const * argument)
 {
   /* Infinite loop */
 	uint8_t data[8];
-	uint8_t id = (uint8_t)0x300;
+	uint16_t id = 0x300;
   zone_state_e zone_state = NORMAL;
   zone_state_e zone_state_queue = NORMAL;
   for(;;)
@@ -389,6 +377,47 @@ void can_tx(void const * argument)
 			zone_state = zone_state_queue;
 		}
 	}
+	switch(zone_state){
+	case NORMAL:
+		throuple_can_tx(id, data);
+		break;
+	case NORMAL_PUSHED:
+		throuple_can_tx(id, data);
+		break;
+	case ERROR_BUTTON:
+		break;
+	case ERROR_BUTTON_RELEASED:
+		break;
+	case ERROR_HB:
+		throuple_can_tx(id, data);
+		break;
+	}
+	osDelay(20);
+  }
+}
+
+void can_tx_front(void const * argument)
+{
+	/* Infinite loop */
+	uint8_t data[8];
+	uint16_t id = 0x200;
+  zone_state_e zone_state = NORMAL;
+  zone_state_e zone_state_queue = NORMAL;
+  for(;;)
+  {
+	if (xQueueCANState != NULL){
+		if (xQueueReceive(xQueueCANState, &zone_state_queue, ( TickType_t ) 0) == pdPASS){
+			zone_state = zone_state_queue;
+		}
+	}
+	// fill in with data
+	uint16_t servo_current = current_sense_read();
+	uint16_t servo_pot = pot_sense_read();
+	data[0] = (uint8_t)(servo_current >> 8);
+	data[1] = (uint8_t)(servo_current & 0xFF);
+	data[2] = (uint8_t)(servo_pot >> 8);
+	data[3] = (uint8_t)(servo_pot & 0xFF);
+
 	switch(zone_state){
 	case NORMAL:
 		throuple_can_tx(id, data);
@@ -455,6 +484,22 @@ void motor_controller(void const * argument){
 		}
 		motor_control(zone_state);
 
+		osDelay(10);
+	}
+}
+
+// Steering Angle Task
+void steering_task(void const * argument){
+	uint8_t steering_angle;
+	uint8_t steering_angle_queue;
+	for(;;){
+		// Receive State
+		if (xQueueSteering != NULL){
+			if (xQueueReceive(xQueueSteering, &steering_angle_queue, ( TickType_t ) 0) == pdPASS){
+				steering_angle = steering_angle_queue;
+			}
+		}
+		set_servo_pos(steering_angle);
 		osDelay(10);
 	}
 }

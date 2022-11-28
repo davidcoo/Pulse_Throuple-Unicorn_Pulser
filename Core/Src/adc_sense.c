@@ -20,7 +20,7 @@ uint16_t current_sense_read(){
 	// read
 	uint16_t raw;
 	HAL_ADC_Start(&hadc1);
-	HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+	HAL_ADC_PollForConversion(&hadc1, 5);
 	raw = HAL_ADC_GetValue(&hadc1);
 	return raw;
 }

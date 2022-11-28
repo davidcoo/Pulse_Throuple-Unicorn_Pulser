@@ -112,6 +112,7 @@ void set_blinkers(uint8_t hazard, uint8_t right, uint8_t left){
 
 void left_blinker_on(){
 	TIM3->CCR2 = 500;
+	TIM3->RCR = 0;
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
 	left_state = 1;
 }
@@ -123,6 +124,7 @@ void left_blinker_off(){
 
 void right_blinker_on(){
 	TIM3->CCR4 = 500;
+	TIM3->RCR = 0;
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
 	right_state = 1;
 }

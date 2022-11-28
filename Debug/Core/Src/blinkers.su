@@ -3,8 +3,8 @@
 ../Core/Src/blinkers.c:85:6:blinkers_init	8	static
 ../Core/Src/blinkers.c:89:6:set_blinkers	16	static
 ../Core/Src/blinkers.c:113:6:left_blinker_on	8	static
-../Core/Src/blinkers.c:119:6:left_blinker_off	8	static
-../Core/Src/blinkers.c:124:6:right_blinker_on	8	static
-../Core/Src/blinkers.c:130:6:right_blinker_off	8	static
-../Core/Src/blinkers.c:136:6:hazards_on	8	static
-../Core/Src/blinkers.c:142:6:hazards_off	8	static
+../Core/Src/blinkers.c:120:6:left_blinker_off	8	static
+../Core/Src/blinkers.c:125:6:right_blinker_on	8	static
+../Core/Src/blinkers.c:132:6:right_blinker_off	8	static
+../Core/Src/blinkers.c:138:6:hazards_on	8	static
+../Core/Src/blinkers.c:144:6:hazards_off	8	static

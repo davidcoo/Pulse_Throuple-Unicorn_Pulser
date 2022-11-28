@@ -12,7 +12,7 @@
 #include "stm32f1xx_hal.h"
 
 void can_init();
-void throuple_can_tx(uint8_t id, uint8_t * data);
+void throuple_can_tx(uint16_t id, uint8_t * data);
 
 typedef struct {
 	uint16_t id;
