@@ -87,6 +87,8 @@ typedef struct {
 typedef struct {
     uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
     uint8_t sending_heartbeat;
+    uint8_t front_enabled;
+    uint8_t rear_enabled;
     uint8_t brake_pos;
     uint8_t throttle_pos;
     uint8_t steering_pos;
@@ -149,10 +151,16 @@ long time_ms(){
  
 void *send_force(void *args) {
     // UDP
+
+    // if control_state->front_disabled, send 0 force feedback
+
     int8_t force = 0;
     int sockfd;
     struct sockaddr_in servaddr;
+        // Init steering wheel force feedback
 
+    receive_position_info_t *send1_args = (receive_position_info_t *)args;
+    control_state_t *control_state = send1_args->control_state;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(S_PORT);
     servaddr.sin_addr.s_addr = inet_addr(REMOTE_HOST);
@@ -166,6 +174,7 @@ void *send_force(void *args) {
         usleep(TX_INTERVAL_MS * 1000);
        // printf("Send force %d\n", force);
         force += 5;
+        if (!(control_state->front_enabled)) force = 0;
         sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
                 (struct sockaddr *) &servaddr, sizeof(servaddr));
 
@@ -312,10 +321,9 @@ void *receive_can(void *args) {
                 control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
                 control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
                 pthread_mutex_unlock(&(control_state->mux_servo));
-                // increment heartbeat
 
 	        heart_track->heartbeat_front = time_ms();
-                // GET OUT OF ERROR STATE
+                // GET OUT OF ERROR STATE (done in main now, otherwise can mux and write here?)
             }
             else if (frame.can_id == 0x300){
                 heart_track->heartbeat_rear = time_ms();
@@ -357,8 +365,6 @@ int main()
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
-    pthread_t send_tid;
-    pthread_create(&send_tid, NULL, send_force, NULL);
 
 
     memset(&frame, 0, sizeof(struct can_frame));
@@ -372,12 +378,10 @@ int main()
 
     //1. Create Socket for CAN
     s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-    printf("socket: %d \n", s);
     if (s < 0) {
         perror("socket PF_CAN failed");
         return 1;
     }
-    printf("after 1\n");
     //2. Specify can0 device
     strcpy(ifr.ifr_name, "can0");
     ret = ioctl(s, SIOCGIFINDEX, &ifr);
@@ -386,7 +390,7 @@ int main()
         perror("ioctl failed");
         return 1;
     }
-    printf("after 2\n");
+
     //3. Bind the sockt to can0
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
@@ -395,12 +399,12 @@ int main()
         perror("bind failed");
         return 1;
     }
-    printf("after 3 \n");
 
     // Init state vars
     control_state->enabled = 1;
     control_state->sending_heartbeat = 1;
- 
+    control_state->front_enabled = 1;
+    control_state->rear_enabled = 1;
     control_state->brake_pos = 0;
     control_state->throttle_pos = 0;
     control_state->steering_pos = 0;
@@ -412,7 +416,14 @@ int main()
     control_state->servo_current = 0;
     control_state->servo_pos = 0;
     
-    printf("hi hit here \n");
+    // Init steering wheel force feedback
+    receive_position_info_t s1_args;
+    receive_position_info_t *send1_args = &s1_args;
+    send1_args->control_state = control_state;
+    pthread_t send_tid;
+    pthread_create(&send_tid, NULL, send_force, send1_args);
+
+
     receive_position_info_t r_args;
     receive_position_info_t *receive_args = &r_args;
     receive_args->sockfd = sockfd;
@@ -454,12 +465,17 @@ int main()
     
     while(1){
          if (time_ms() - heart_track->heartbeat_front > HEARTBEAT_TO) {
+             control_state->front_enabled = 0;
             // SET FRONT STATE FUCKED UP
             // GO INTO HAZARD STATE, UPDATE THE CONTROL VARIABLE
-         }
-         if (time_ms() - heart_track->heartbeat_rear > HEARTBEAT_T0){
+         } else {
+             control_state->front_enabled = 1;
          }
 
-        // keep checking the heartbeats and update enabled or disabled? 
+         if (time_ms() - heart_track->heartbeat_rear > HEARTBEAT_T0){
+             control_state->rear_enabled = 0;
+         } else {
+             control_state->rear_enabled = 1;
+         }
     }
 }
