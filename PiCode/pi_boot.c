@@ -27,7 +27,7 @@
 #define S_PORT 1000
 
 #define TX_INTERVAL_MS 300
-#define HEARTBEAT_INTERVAL 300
+#define HEARTBEAT_TO 200
 #define STATE_SIZE sizeof(DIJOYSTATE2_t)
 
 #define MAX_RANGE 32767
@@ -78,6 +78,13 @@ typedef enum {
 } blink_button_state_e;
 
 typedef struct {
+    long heartbeat_rear;
+    long heartbeat_front;
+} heartbeat_tracker_t;
+
+
+
+typedef struct {
     uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
     uint8_t sending_heartbeat;
     uint8_t brake_pos;
@@ -103,7 +110,7 @@ typedef struct {
     int s;
     struct sockaddr_in servaddr;
     control_state_t *control_state;
-
+    heartbeat_tracker_t *heart_track;
 } receive_position_info_t;
 
 static void inc_period(struct period_info *pinfo) 
@@ -133,12 +140,13 @@ static void wait_rest_of_period(struct period_info *pinfo)
     /* for simplicity, ignoring possibilities of signal wakes */
     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &pinfo->next_period, NULL);
 }
- 
-typedef struct { 
-    long heartbeat_rear;
-    long heartbeat_front;
-} heartbeat_tracker;
 
+long time_ms(){
+    struct timespec spec;
+    clock_gettime(CLOCK_MONOTONIC, &spec);
+    return round(spec.tv_sec/1.0e6);
+}
+ 
 void *send_force(void *args) {
     // UDP
     int8_t force = 0;
@@ -272,7 +280,8 @@ void *send_can(void *args) {
 
 void *receive_can(void *args) {
     receive_position_info_t *receiver2_args = (receive_position_info_t *)args;
-
+    heartbeat_tracker_t *heart_track = receiver2_args->heart_track;
+ 
     struct can_frame frame;
     memset(&frame, 0, sizeof(struct can_frame));
     // need to memset frame
@@ -304,17 +313,15 @@ void *receive_can(void *args) {
                 control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
                 pthread_mutex_unlock(&(control_state->mux_servo));
                 // increment heartbeat
+
+	        heart_track->heartbeat_front = time_ms();
+                // GET OUT OF ERROR STATE
             }
             else if (frame.can_id == 0x300){
-                // keep track of the heartbeat
-
+                heart_track->heartbeat_rear = time_ms();
+              // GET OUT OF ERROR STATE
             }
 
-            // printf("can_id = 0x%X\r\ncan_dlc = %d \r\n", frame.can_id, frame.can_dlc);
-            // int i =0;
-            // for(i = 0; i < 8; i++) {
-            //     printf("data[%d] = %d\r\n", i, frame.data[i]);
-            // }
         }
         memset(&frame, 0, sizeof(struct can_frame));
         wait_rest_of_period(&pinfo);
@@ -422,6 +429,13 @@ int main()
     pthread_t receive_tid;
     pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
 
+
+    heartbeat_tracker_t h_track;
+    heartbeat_tracker_t *heart_track = &h_track;
+
+    heart_track->heartbeat_rear = time_ms();
+    heart_track->heartbeat_front = time_ms();
+
     // Init CAN RX thread
     receive_position_info_t r2_args;
     receive_position_info_t *receive2_args = &r2_args;
@@ -437,8 +451,15 @@ int main()
     send_args->control_state = control_state;
     pthread_t send_can_tid;
     pthread_create(&send_can_tid, NULL, send_can, (void *)send_args);
-
+    
     while(1){
+         if (time_ms() - heart_track->heartbeat_front > HEARTBEAT_TO) {
+            // SET FRONT STATE FUCKED UP
+            // GO INTO HAZARD STATE, UPDATE THE CONTROL VARIABLE
+         }
+         if (time_ms() - heart_track->heartbeat_rear > HEARTBEAT_T0){
+         }
+
         // keep checking the heartbeats and update enabled or disabled? 
     }
 }
