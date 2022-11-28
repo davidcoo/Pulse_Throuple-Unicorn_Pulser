@@ -53,7 +53,7 @@ uint8_t map_brake(int raw_brake) {
     raw_brake -= 20000;
     if (raw_brake < 0) {
        // printf("raw: %d, mapped: %d\n", raw_brake, 0);
-        return (uint8_t)0;
+        return (uint8_t)100;
     }
     int temp = (raw_brake * 100)/ 12767;
     //printf("%d\n", temp);
@@ -64,12 +64,18 @@ uint8_t map_brake(int raw_brake) {
 }
 
 uint8_t map_steering(int raw_steering){
-    int temp = (raw_steering * 255)/((2*MAX_RANGE)+1);
-    temp += 128;
+    int temp = (raw_steering * 50)/MAX_RANGE;
+    temp += 50;
     //printf("raw: %d, mapped: %d\n", raw_steering, temp);
     return (uint8_t)temp; 
     // output between 1-255
 }
+
+typedef enum {
+    BLINK_0, // previously unpressed
+    BLINK_1, // pressed once
+    BLINK_2 // pressed once and pressed again
+} blink_button_state_e;
 
 typedef struct {
     uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
@@ -79,7 +85,9 @@ typedef struct {
     uint8_t steering_pos;
     uint8_t blink_both;
     uint8_t blink_right;
+    blink_button_state_e blink_right_state;
     uint8_t blink_left;
+    blink_button_state_e blink_left_state;
     uint16_t servo_current;
     uint16_t servo_pos; // tell which direction to apply the force
     int raw_steering;
@@ -188,11 +196,32 @@ void *receive_position(void *args){
        
        // printf("rgb button 4: %u, rgb button 5: %d \n", state.rgbButtons[4], state.rgbButtons[5]);
         pthread_mutex_lock(&(control_state->mux_blink));
-        if (state.rgbButtons[5] > 0)
+        if (state.rgbButtons[5] > 0) { // Left
+            if (control_state->blink_left_state == BLINK_0) {
+                // toggle blinker - using xor to toggle last bit
+                control_state->blink_left = control_state->blink_left ^ 1;
+                control_state->blink_left_state = BLINK_1;
+            } else if (control_state->blink_left_state == BLINK_1) {
+                // no toggle - button continuously pressed
+                control_state->blink_left_state = BLINK_2;
+            } // else do nothing - stay in BLINK_2
+            // need to debounce this button 
             //control_state->blink_left = state.rgbButtons[4];
-            control_state->blink_left = 1;
-	if (state.rgbButtons[4] > 0)
-	    control_state->blink_right = 1; // double check these
+        } else {
+            control_state->blink_left_state = BLINK_0;
+        }
+	if (state.rgbButtons[4] > 0) { // Right
+            if (control_state->blink_right_state == BLINK_0) {
+                // toggle blinker - using xor to toggle last bit
+                control_state->blink_right = control_state->blink_right ^ 1;
+                control_state->blink_right_state = BLINK_1;
+            } else if (control_state->blink_right_state == BLINK_1) {
+                // no toggle - button continuously pressed
+                control_state->blink_right_state = BLINK_2;
+            } // else do nothing - stay in BLINK_2
+        } else {
+            control_state->blink_right_state = BLINK_0;
+        }
         pthread_mutex_unlock(&(control_state->mux_blink));
 
         //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
@@ -230,7 +259,7 @@ void *send_can(void *args) {
 
             frame.data[6] = 0;
             frame.data[7] = 0;
-            printf("frame buttons: %u %u \n", frame.data[4], frame.data[5]);
+            printf("frame: %u %u %u %u %u %u  %u %u \n", frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
             nbytes = write (s, &frame, sizeof(frame));
             if (nbytes != sizeof(frame)) {
                 printf("Send error frame[0]\r\n");
@@ -370,7 +399,9 @@ int main()
     control_state->steering_pos = 0;
     control_state->blink_both = 0;
     control_state->blink_right = 0;
+    control_state->blink_right_state = BLINK_0;
     control_state->blink_left = 0;
+    control_state->blink_left_state = BLINK_0;
     control_state->servo_current = 0;
     control_state->servo_pos = 0;
     
