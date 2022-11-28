@@ -44,7 +44,7 @@ uint8_t map_throttle(int raw_throttle) {
     // divide
     int temp = (raw_throttle * 50)/MAX_RANGE;
     temp += 50;
-    printf("raw: %d, mapped: %d\n", raw_throttle, temp);
+   // printf("raw: %d, mapped: %d\n", raw_throttle, temp);
     return (uint8_t)(100-temp);
     //output between 0-100
 }
@@ -52,12 +52,12 @@ uint8_t map_throttle(int raw_throttle) {
 uint8_t map_brake(int raw_brake) { 
     raw_brake -= 20000;
     if (raw_brake < 0) {
-        printf("raw: %d, mapped: %d\n", raw_brake, 0);
+       // printf("raw: %d, mapped: %d\n", raw_brake, 0);
         return (uint8_t)0;
     }
     int temp = (raw_brake * 100)/ 12767;
-    printf("%d\n", temp);
-    printf("raw: %d, mapped: %d\n", raw_brake, temp);
+    //printf("%d\n", temp);
+    //printf("raw: %d, mapped: %d\n", raw_brake, temp);
     return (uint8_t)(100-temp);
     //output between 0-100
 
@@ -66,7 +66,7 @@ uint8_t map_brake(int raw_brake) {
 uint8_t map_steering(int raw_steering){
     int temp = (raw_steering * 255)/((2*MAX_RANGE)+1);
     temp += 128;
-    printf("raw: %d, mapped: %d\n", raw_steering, temp);
+    //printf("raw: %d, mapped: %d\n", raw_steering, temp);
     return (uint8_t)temp; 
     // output between 1-255
 }
@@ -80,7 +80,7 @@ typedef struct {
     uint8_t blink_both;
     uint8_t blink_right;
     uint8_t blink_left;
-    uint16_t servo_force;
+    uint16_t servo_current;
     uint16_t servo_pos; // tell which direction to apply the force
     int raw_steering;
     int raw_throttle;
@@ -148,7 +148,7 @@ void *send_force(void *args) {
 
     while (1) {
         usleep(TX_INTERVAL_MS * 1000);
-        printf("Send force %d\n", force);
+       // printf("Send force %d\n", force);
         force += 5;
         sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
                 (struct sockaddr *) &servaddr, sizeof(servaddr));
@@ -185,11 +185,15 @@ void *receive_position(void *args){
         control_state->throttle_pos = throttle_pos;
         control_state->steering_pos = steering_pos;
         pthread_mutex_unlock(&(control_state->mux_pos));
-
+       
+       // printf("rgb button 4: %u, rgb button 5: %d \n", state.rgbButtons[4], state.rgbButtons[5]);
         pthread_mutex_lock(&(control_state->mux_blink));
-        control_state->blink_left = state.rgbButtons[4];
-        control_state->blink_right = state.rgbButtons[5]; // double check these
-        pthread_mutex_unlock(&control_state->mux_blink));
+        if (state.rgbButtons[5] > 0)
+            //control_state->blink_left = state.rgbButtons[4];
+            control_state->blink_left = 1;
+	if (state.rgbButtons[4] > 0)
+	    control_state->blink_right = 1; // double check these
+        pthread_mutex_unlock(&(control_state->mux_blink));
 
         //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
     }
@@ -226,6 +230,7 @@ void *send_can(void *args) {
 
             frame.data[6] = 0;
             frame.data[7] = 0;
+            printf("frame buttons: %u %u \n", frame.data[4], frame.data[5]);
             nbytes = write (s, &frame, sizeof(frame));
             if (nbytes != sizeof(frame)) {
                 printf("Send error frame[0]\r\n");
@@ -366,10 +371,8 @@ int main()
     control_state->blink_both = 0;
     control_state->blink_right = 0;
     control_state->blink_left = 0;
-    control_state->servo_force = 0;
+    control_state->servo_current = 0;
     control_state->servo_pos = 0;
-
-    pthread_t receive_tid;
     
     printf("hi hit here \n");
     receive_position_info_t r_args;
@@ -382,7 +385,7 @@ int main()
     pthread_mutex_init(&(control_state->mux_pos), NULL);
     pthread_mutex_init(&(control_state->mux_blink), NULL);
     pthread_mutex_init(&(control_state->mux_servo), NULL);
-    pthread_mutex_init(&(control_state->mux_rx));
+   
 
     // Init steering wheel communication thread
     pthread_t receive_tid;
