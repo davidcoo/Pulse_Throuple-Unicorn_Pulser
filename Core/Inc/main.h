@@ -43,8 +43,10 @@ typedef struct {
 
 typedef enum {
 	ERROR_BUTTON = 1,
-	ERROR_HB = 2,
-	NORMAL = 3,
+	ERROR_BUTTON_RELEASED = 2,
+	ERROR_HB = 3,
+	NORMAL = 4,
+	NORMAL_PUSHED = 5,
 } zone_state_e;
 
 /* USER CODE END ET */

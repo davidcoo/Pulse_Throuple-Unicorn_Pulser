@@ -121,6 +121,21 @@ static void MX_CAN_Init(void)
   /* USER CODE END CAN_Init 2 */
 }
 
+
+CAN_TxHeaderTypeDef	TxHeader;
+uint32_t TxMailbox;
+uint8_t real_data[8];
+void throuple_can_tx(uint8_t id, uint8_t * data){
+
+	TxHeader.DLC = 8;
+	TxHeader.IDE = CAN_ID_STD;
+	TxHeader.RTR = CAN_RTR_DATA;
+	TxHeader.StdId = id;
+
+	HAL_CAN_AddTxMessage(&hcan, &TxHeader, real_data, &TxMailbox);
+}
+
+
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
