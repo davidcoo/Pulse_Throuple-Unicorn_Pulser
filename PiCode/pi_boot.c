@@ -16,6 +16,7 @@
 #include "can_header_temp.h"
 #include <time.h>
 #include <math.h>
+#include <wiringPi.h>
 
 #define BITRATE 500000
 //#define LOCAL_HOST "169.254.81.79"
@@ -33,6 +34,7 @@
 #define MAX_RANGE 32767
 #define MIN_RANGE -32768
 
+#define PIN_BUTTON 27
 
 struct period_info {
     struct timespec next_period;
@@ -77,6 +79,12 @@ typedef enum {
     BLINK_2 // pressed once and pressed again
 } blink_button_state_e;
 
+typedef enum {
+    BUTTON_0,
+    BUTTON_1,
+    BUTTON_2,
+} reset_button_state_e;
+
 typedef struct {
     long heartbeat_rear;
     long heartbeat_front;
@@ -102,6 +110,7 @@ typedef struct {
     int raw_steering;
     int raw_throttle;
     int raw_brake;
+    reset_button_state_e button_state;
     pthread_mutex_t mux_pos; //  mutex for accessing mapped values
     pthread_mutex_t mux_blink; // mutex for accessing blinker values
     pthread_mutex_t mux_servo; // mutex for accesing servo values
@@ -241,6 +250,20 @@ void *receive_position(void *args){
         }
         pthread_mutex_unlock(&(control_state->mux_blink));
 
+        // check the button in here too, might as well?
+        // check the read of the button 
+        if (digitalRead(PIN_BUTTON)){
+               if (control_state->button_state == BUTTON_0){
+                  control_state->button_state = BUTTON_1;
+                  printf("BUTTON HIGH \n");
+               }
+        else {
+               if (control_state->button_state = BUTTON_1){
+                  control_state->button_state = BUTTON_0;
+                  control_state->enabled = !(control_state->enabled); //disable if enabled, enable if disabled // might want to make this a functon to determine if heartbeat should be sent or not, with collision avoidance stuff
+                  printf("CONTROL ZONE = %d\n", control_state->enabled);
+		}
+        }
         //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
     }
 }
@@ -346,7 +369,9 @@ int main()
     struct can_frame frame;
     control_state_t c_state;
     control_state_t *control_state = &c_state;
-
+    
+    wiringPiSetupGpio();
+    pinMode(PIN_BUTTON, INPUT);
     int sockfd;
     char buffer[STATE_SIZE+1];
     struct sockaddr_in servaddr = { 0 };
@@ -415,6 +440,7 @@ int main()
     control_state->blink_left_state = BLINK_0;
     control_state->servo_current = 0;
     control_state->servo_pos = 0;
+    control_state->button_state = BUTTON_0;
     
     // Init steering wheel force feedback
     receive_position_info_t s1_args;
