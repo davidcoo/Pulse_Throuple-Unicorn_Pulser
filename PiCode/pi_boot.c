@@ -15,6 +15,7 @@
 #include <linux/can/raw.h>
 #include "can_header_temp.h"
 #include <time.h>
+#include <math.h>
 
 #define BITRATE 500000
 //#define LOCAL_HOST "169.254.81.79"
@@ -29,10 +30,46 @@
 #define HEARTBEAT_INTERVAL 300
 #define STATE_SIZE sizeof(DIJOYSTATE2_t)
 
+#define MAX_RANGE 32767
+#define MIN_RANGE -32768
+
+
 struct period_info {
     struct timespec next_period;
     long period_ns;
 };
+
+
+uint8_t map_throttle(int raw_throttle) {
+    // divide
+    int temp = (raw_throttle * 50)/MAX_RANGE;
+    temp += 50;
+    printf("raw: %d, mapped: %d\n", raw_throttle, temp);
+    return (uint8_t)(100-temp);
+    //output between 0-100
+}
+
+uint8_t map_brake(int raw_brake) { 
+    raw_brake -= 20000;
+    if (raw_brake < 0) {
+        printf("raw: %d, mapped: %d\n", raw_brake, 0);
+        return (uint8_t)0;
+    }
+    int temp = (raw_brake * 100)/ 12767;
+    printf("%d\n", temp);
+    printf("raw: %d, mapped: %d\n", raw_brake, temp);
+    return (uint8_t)(100-temp);
+    //output between 0-100
+
+}
+
+uint8_t map_steering(int raw_steering){
+    int temp = (raw_steering * 255)/((2*MAX_RANGE)+1);
+    temp += 128;
+    printf("raw: %d, mapped: %d\n", raw_steering, temp);
+    return (uint8_t)temp; 
+    // output between 1-255
+}
 
 typedef struct {
     uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
@@ -43,10 +80,14 @@ typedef struct {
     uint8_t blink_both;
     uint8_t blink_right;
     uint8_t blink_left;
-    uint16_t raw_steering;
-    uint16_t raw_throttle;
-    uint16_t raw_brake;
-    pthread_mutex_t mux_raw; // mutex
+    uint16_t servo_force;
+    uint16_t servo_pos; // tell which direction to apply the force
+    int raw_steering;
+    int raw_throttle;
+    int raw_brake;
+    pthread_mutex_t mux_pos; //  mutex for accessing mapped values
+    pthread_mutex_t mux_blink; // mutex for accessing blinker values
+    pthread_mutex_t mux_servo; // mutex for accesing servo values
 } control_state_t;
 
 typedef struct { 
@@ -85,6 +126,11 @@ static void wait_rest_of_period(struct period_info *pinfo)
     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &pinfo->next_period, NULL);
 }
  
+typedef struct { 
+    long heartbeat_rear;
+    long heartbeat_front;
+} heartbeat_tracker;
+
 void *send_force(void *args) {
     // UDP
     int8_t force = 0;
@@ -127,26 +173,28 @@ void *receive_position(void *args){
                     (struct sockaddr *) &servaddr, &len);
         uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
         memcpy(&state, recvbuf + 4, sizeof(state));
-        pthread_mutex_lock(&(control_state->mux_raw));
-        control_state->raw_brake = state.lRz;
-        control_state->raw_steering = state.lX;
-        contorl_state->raw_throttle = state.lY;
-        pthread_mutex_unlock(&(control_state->mux-raw));
+
+
+
+        uint8_t brake_pos = map_brake(state.lRz);
+        uint8_t throttle_pos = map_throttle(state.lY);
+        uint8_t steering_pos = map_steering(state.lX);
+
+        pthread_mutex_lock(&(control_state->mux_pos));
+        control_state->brake_pos = brake_pos;
+        control_state->throttle_pos = throttle_pos;
+        control_state->steering_pos = steering_pos;
+        pthread_mutex_unlock(&(control_state->mux_pos));
+
+        pthread_mutex_lock(&(control_state->mux_blink));
+        control_state->blink_left = state.rgbButtons[4];
+        control_state->blink_right = state.rgbButtons[5]; // double check these
+        pthread_mutex_unlock(&control_state->mux_blink));
+
         //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
     }
 }
 
-void *processor(void *args) {
-    control_state_t *control_state = (control_state_t *)args;
-
-
-    // convert position into 0-255 (0-127 left, 129-255 right, 128 is middle) // create some mapping function
-    // convert throttle into 1-100
-    // convert brake into 1-100
-    
-    // save back into control state
-
-}
 
 void *send_can(void *args) {
     //make this periodic 
@@ -161,19 +209,21 @@ void *send_can(void *args) {
     struct period_info pinfo;
     periodic_task_init(&pinfo, 20000000); // Period 20ms
 
-    printf("access frame \n");
-    printf("s: %d\n", send_args->s);
-    
-    uint8_t turn_on = 0;
     while (1) {
+        // might need to lock this guy
         if (control_state->sending_heartbeat){
-            turn_on = !turn_on;
+            pthread_mutex_lock(&(control_state->mux_pos));
             frame.data[0] = control_state->brake_pos;
             frame.data[1] = control_state->throttle_pos;
             frame.data[2] = control_state->steering_pos;
+            pthread_mutex_unlock(&(control_state->mux_pos));
+
+            pthread_mutex_lock(&(control_state->mux_blink));
             frame.data[3] = control_state->blink_both;
             frame.data[4] = control_state->blink_left;
             frame.data[5] = control_state->blink_right;
+            pthread_mutex_unlock(&(control_state->mux_blink));
+
             frame.data[6] = 0;
             frame.data[7] = 0;
             nbytes = write (s, &frame, sizeof(frame));
@@ -187,12 +237,15 @@ void *send_can(void *args) {
 }
 
 void *receive_can(void *args) {
+    receive_position_info_t *receiver2_args = (receive_position_info_t *)args;
 
     struct can_frame frame;
     memset(&frame, 0, sizeof(struct can_frame));
     // need to memset frame
     struct can_filter rfilter[2];
-    int s = *((int*)args);
+    // need the control state here!
+    int s = receiver2_args->s;
+    control_state_t *control_state = receiver2_args->control_state;
     int nbytes;
     // Make periodic
     struct period_info pinfo;
@@ -208,19 +261,30 @@ void *receive_can(void *args) {
     while(1){
         nbytes = read(s, &frame, sizeof(frame));
         if (nbytes > 0){
-            printf("can_id = 0x%X\r\ncan_dlc = %d \r\n", frame.can_id, frame.can_dlc);
-            int i =0;
-            for(i = 0; i < 8; i++) {
-                printf("data[%d] = %d\r\n", i, frame.data[i]);
+            // received a front zone one: 
+            if (frame.can_id == 0x200) {
+                // front zone, 
+                // save force value and
+                pthread_mutex_lock(&(control_state->mux_servo));
+                control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
+                control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
+                pthread_mutex_unlock(&(control_state->mux_servo));
+                // increment heartbeat
             }
+            else if (frame.can_id == 0x300){
+                // keep track of the heartbeat
+
+            }
+
+            // printf("can_id = 0x%X\r\ncan_dlc = %d \r\n", frame.can_id, frame.can_dlc);
+            // int i =0;
+            // for(i = 0; i < 8; i++) {
+            //     printf("data[%d] = %d\r\n", i, frame.data[i]);
+            // }
         }
         memset(&frame, 0, sizeof(struct can_frame));
         wait_rest_of_period(&pinfo);
     }
-
-    // option 1: check off the heartbeat categories
-
-    // option 2: forward the force
 }
 
 int main()
@@ -302,6 +366,8 @@ int main()
     control_state->blink_both = 0;
     control_state->blink_right = 0;
     control_state->blink_left = 0;
+    control_state->servo_force = 0;
+    control_state->servo_pos = 0;
 
     pthread_t receive_tid;
     
@@ -313,13 +379,20 @@ int main()
     receive_args->control_state = control_state;
 
     /* initialize a mutex to its default value */
-    pthread_mutex_init(&(control_state->mux_raw), NULL);
+    pthread_mutex_init(&(control_state->mux_pos), NULL);
+    pthread_mutex_init(&(control_state->mux_blink), NULL);
+    pthread_mutex_init(&(control_state->mux_servo), NULL);
+    pthread_mutex_init(&(control_state->mux_rx));
 
     // Init steering wheel communication thread
     pthread_t receive_tid;
     pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
 
     // Init CAN RX thread
+    receive_position_info_t r2_args;
+    receive_position_info_t *receive2_args = &r2_args;
+    receive2_args->s = s;
+    receive2_args->control_state = control_state;
     pthread_t receive_can_tid;
     pthread_create(&receive_can_tid, NULL, receive_can, &s);
 
@@ -328,12 +401,10 @@ int main()
     receive_position_info_t *send_args = &s_args;
     send_args->s = s;
     send_args->control_state = control_state;
-    printf("s before thread: %d \n", s);
     pthread_t send_can_tid;
     pthread_create(&send_can_tid, NULL, send_can, (void *)send_args);
 
-    printf("yuh \n");
     while(1){
-
+        // keep checking the heartbeats and update enabled or disabled? 
     }
 }
