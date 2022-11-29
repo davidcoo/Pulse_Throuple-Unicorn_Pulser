@@ -236,37 +236,39 @@ void *receive_position(void *args){
         } else {
             control_state->blink_left_state = BLINK_0;
         }
-	if (state.rgbButtons[4] > 0) { // Right
+        if (state.rgbButtons[4] > 0) { // Right
             if (control_state->blink_right_state == BLINK_0) {
-                // toggle blinker - using xor to toggle last bit
-                control_state->blink_right = control_state->blink_right ^ 1;
-                control_state->blink_right_state = BLINK_1;
+                    // toggle blinker - using xor to toggle last bit
+                    control_state->blink_right = control_state->blink_right ^ 1;
+                    control_state->blink_right_state = BLINK_1;
             } else if (control_state->blink_right_state == BLINK_1) {
-                // no toggle - button continuously pressed
-                control_state->blink_right_state = BLINK_2;
+                    // no toggle - button continuously pressed
+                    control_state->blink_right_state = BLINK_2;
             } // else do nothing - stay in BLINK_2
-        } else {
-            control_state->blink_right_state = BLINK_0;
+            else {
+                control_state->blink_right_state = BLINK_0;
+            }
+            pthread_mutex_unlock(&(control_state->mux_blink));
         }
-        pthread_mutex_unlock(&(control_state->mux_blink));
-
+    }
         // check the button in here too, might as well?
         // check the read of the button 
-        if (digitalRead(PIN_BUTTON)){
-               if (control_state->button_state == BUTTON_0){
-                  control_state->button_state = BUTTON_1;
-                  printf("BUTTON HIGH \n");
-               }
-        else {
-               if (control_state->button_state = BUTTON_1){
-                  control_state->button_state = BUTTON_0;
-                  control_state->enabled = !(control_state->enabled); //disable if enabled, enable if disabled // might want to make this a functon to determine if heartbeat should be sent or not, with collision avoidance stuff
-                  printf("CONTROL ZONE = %d\n", control_state->enabled);
-		}
-        }
-        //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
+    if (digitalRead(PIN_BUTTON)){
+            if (control_state->button_state == BUTTON_0){
+                control_state->button_state = BUTTON_1;
+                printf("BUTTON HIGH \n");
+            }
     }
+    else {
+        if (control_state->button_state = BUTTON_1){
+            control_state->button_state = BUTTON_0;
+            control_state->enabled = !(control_state->enabled); //disable if enabled, enable if disabled // might want to make this a functon to determine if heartbeat should be sent or not, with collision avoidance stuff
+            printf("CONTROL ZONE = %d\n", control_state->enabled);
+        }
+    }
+
 }
+        //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
 
 
 void *send_can(void *args) {
