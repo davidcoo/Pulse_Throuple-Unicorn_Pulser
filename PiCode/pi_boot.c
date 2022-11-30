@@ -23,7 +23,7 @@
 #define LOCAL_HOST "169.254.190.42"
 #define R_PORT 13606
 
-#define REMOTE_HOST "169.254.81.79"
+#define REMOTE_HOST "169.254.204.15"
 //#define REMOTE_HOST "169.254.190.42"
 #define S_PORT 1000
 
@@ -114,6 +114,7 @@ typedef struct {
     pthread_mutex_t mux_pos; //  mutex for accessing mapped values
     pthread_mutex_t mux_blink; // mutex for accessing blinker values
     pthread_mutex_t mux_servo; // mutex for accesing servo values
+    pthread_mutex_t mux_heartbeat;
 } control_state_t;
 
 typedef struct { 
@@ -184,7 +185,7 @@ void *send_force(void *args) {
        // printf("Send force %d\n", force);
         force += 5;
         if (!(control_state->front_enabled)) force = 0;
-        sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
+        if (control_state->enabled) sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
                 (struct sockaddr *) &servaddr, sizeof(servaddr));
 
     }
@@ -199,7 +200,8 @@ void *receive_position(void *args){
 
     int sockfd = receive_args->sockfd;
     struct sockaddr_in servaddr = receive_args->servaddr;
-    control_state_t *control_state = receive_args->control_state;
+    heartbeat_tracker_t *heart_track = (heartbeat_tracker_t *)(receive_args->heart_track);
+    control_state_t *control_state = (control_state_t *)(receive_args->control_state);
     // need: sockfd,  servaddr, control_state
     while(control_state->enabled) {
         int n, len;
@@ -262,6 +264,12 @@ void *receive_position(void *args){
     else {
         if (control_state->button_state = BUTTON_1){
             control_state->button_state = BUTTON_0;
+            if (control_state->enabled = 0) {
+		pthread_mutex_lock(&(control_state->mux_heartbeat));
+		heart_track->heartbeat_front = time_ms();
+                heart_track->heartbeat_rear = time_ms(); // you should have just put these in control_state smhhhhhh
+        	pthread_mutex_unlock(&(control_state->mux_heartbeat));    
+	} 
             control_state->enabled = !(control_state->enabled); //disable if enabled, enable if disabled // might want to make this a functon to determine if heartbeat should be sent or not, with collision avoidance stuff
             printf("CONTROL ZONE = %d\n", control_state->enabled);
         }
@@ -286,7 +294,7 @@ void *send_can(void *args) {
 
     while (1) {
         // might need to lock this guy
-        if (control_state->sending_heartbeat){
+        if (control_state->enabled){
             pthread_mutex_lock(&(control_state->mux_pos));
             frame.data[0] = control_state->brake_pos;
             frame.data[1] = control_state->throttle_pos;
@@ -335,7 +343,8 @@ void *receive_can(void *args) {
 
     setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter));
 
-    while(1){
+    while(1){ 
+        if (control_state->enabled) {
         nbytes = read(s, &frame, sizeof(frame));
         if (nbytes > 0){
             // received a front zone one: 
@@ -346,19 +355,25 @@ void *receive_can(void *args) {
                 control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
                 control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
                 pthread_mutex_unlock(&(control_state->mux_servo));
-
+                
+                pthread_mutex_lock(&(control_state->mux_heartbeat));
 	        heart_track->heartbeat_front = time_ms();
+                pthread_mutex_unlock(&(control_state->mux_heartbeat));
                 // GET OUT OF ERROR STATE (done in main now, otherwise can mux and write here?)
             }
             else if (frame.can_id == 0x300){
-                heart_track->heartbeat_rear = time_ms();
+                pthread_mutex_lock(&(control_state->mux_heartbeat));
+		heart_track->heartbeat_rear = time_ms();
+		pthread_mutex_unlock(&(control_state->mux_heartbeat));
               // GET OUT OF ERROR STATE
             }
 
-        }
+          }
         memset(&frame, 0, sizeof(struct can_frame));
+        }
         wait_rest_of_period(&pinfo);
-    }
+     
+     }
 }
 
 int main()
@@ -462,11 +477,10 @@ int main()
     pthread_mutex_init(&(control_state->mux_pos), NULL);
     pthread_mutex_init(&(control_state->mux_blink), NULL);
     pthread_mutex_init(&(control_state->mux_servo), NULL);
-   
+    pthread_mutex_init(&(control_state->mux_heartbeat), NULL);
 
     // Init steering wheel communication thread
     pthread_t receive_tid;
-    pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
 
 
     heartbeat_tracker_t h_track;
@@ -474,6 +488,10 @@ int main()
 
     heart_track->heartbeat_rear = time_ms();
     heart_track->heartbeat_front = time_ms();
+    receive_args->heart_track = heart_track;
+    
+    pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
+
 
     // Init CAN RX thread
     receive_position_info_t r2_args;
@@ -481,7 +499,7 @@ int main()
     receive2_args->s = s;
     receive2_args->control_state = control_state;
     pthread_t receive_can_tid;
-    pthread_create(&receive_can_tid, NULL, receive_can, &s);
+    pthread_create(&receive_can_tid, NULL, receive_can, (void*)receive2_args);
 
     // Init CAN TX thread
     receive_position_info_t s_args;
@@ -492,6 +510,11 @@ int main()
     pthread_create(&send_can_tid, NULL, send_can, (void *)send_args);
     
     while(1){
+         if (!(control_state->enabled)) {
+             control_state->front_enabled = 1;
+             control_state->rear_enabled =1 ; // if control state is not enabled, pretend that everything else is working perfectly
+         } 
+         else {
          if (time_ms() - heart_track->heartbeat_front > HEARTBEAT_TO) {
              control_state->front_enabled = 0;
             // SET FRONT STATE FUCKED UP
@@ -499,11 +522,11 @@ int main()
          } else {
              control_state->front_enabled = 1;
          }
-
-         if (time_ms() - heart_track->heartbeat_rear > HEARTBEAT_T0){
+         if (time_ms() - heart_track->heartbeat_rear > HEARTBEAT_TO){
              control_state->rear_enabled = 0;
          } else {
              control_state->rear_enabled = 1;
          }
+	}
     }
 }

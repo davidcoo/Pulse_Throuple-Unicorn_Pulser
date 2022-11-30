@@ -17,7 +17,7 @@
 #define R_PORT 13606
 
 //#define REMOTE_HOST "172.26.72.159"
-#define REMOTE_HOST "169.254.81.79"
+#define REMOTE_HOST "169.254.204.15"
 #define S_PORT 1000
 /** **/
 
