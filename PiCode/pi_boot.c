@@ -27,12 +27,25 @@
 #define S_PORT 1000
 
 #define TX_INTERVAL_MS 300
-#define HEARTBEAT_INTERVAL 300
+#define HEARTBEAT_TO 200
 #define STATE_SIZE sizeof(DIJOYSTATE2_t)
 
 #define MAX_RANGE 32767
 #define MIN_RANGE -32768
 
+long old_rounded = 0;
+long time_ms(){
+    struct timespec spec;
+    clock_gettime(CLOCK_MONOTONIC, &spec);
+    //printf("spec: %ld\n", spec.tv_nsec);
+    long rounded = spec.tv_sec*1000 + round(spec.tv_nsec/1.0e6);
+    if (rounded >= old_rounded) { 
+        old_rounded = rounded;
+    }
+    else { printf("ERROR: decreased\n");}
+    //printf("rounded: %ld\n", rounded);
+    return rounded;
+}
 
 struct period_info {
     struct timespec next_period;
@@ -80,6 +93,8 @@ typedef enum {
 typedef struct {
     uint8_t enabled; // in collision, so we can still send heartbeat w/ 0 braking pos
     uint8_t sending_heartbeat;
+    uint8_t front_enabled;
+    uint8_t rear_enabled;
     uint8_t brake_pos;
     uint8_t throttle_pos;
     uint8_t steering_pos;
@@ -96,6 +111,8 @@ typedef struct {
     pthread_mutex_t mux_pos; //  mutex for accessing mapped values
     pthread_mutex_t mux_blink; // mutex for accessing blinker values
     pthread_mutex_t mux_servo; // mutex for accesing servo values
+    long heartbeat_front;
+    long heartbeat_rear;
 } control_state_t;
 
 typedef struct { 
@@ -134,10 +151,6 @@ static void wait_rest_of_period(struct period_info *pinfo)
     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &pinfo->next_period, NULL);
 }
  
-typedef struct { 
-    long heartbeat_rear;
-    long heartbeat_front;
-} heartbeat_tracker;
 
 void *send_force(void *args) {
     // UDP
@@ -244,7 +257,7 @@ void *send_can(void *args) {
 
     while (1) {
         // might need to lock this guy
-        if (control_state->sending_heartbeat){
+        if (control_state->enabled){
             pthread_mutex_lock(&(control_state->mux_pos));
             frame.data[0] = control_state->brake_pos;
             frame.data[1] = control_state->throttle_pos;
@@ -291,12 +304,15 @@ void *receive_can(void *args) {
     rfilter[1].can_mask = CAN_SFF_MASK;
 
     setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter));
+    printf("s : %d\n", s);
 
     while(1){
         nbytes = read(s, &frame, sizeof(frame));
+
         if (nbytes > 0){
             // received a front zone one: 
             if (frame.can_id == 0x200) {
+
                 // front zone, 
                 // save force value and
                 pthread_mutex_lock(&(control_state->mux_servo));
@@ -304,9 +320,11 @@ void *receive_can(void *args) {
                 control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
                 pthread_mutex_unlock(&(control_state->mux_servo));
                 // increment heartbeat
+                control_state->heartbeat_front = time_ms();
             }
             else if (frame.can_id == 0x300){
                 // keep track of the heartbeat
+                control_state->heartbeat_rear = time_ms();
 
             }
 
@@ -404,6 +422,10 @@ int main()
     control_state->blink_left_state = BLINK_0;
     control_state->servo_current = 0;
     control_state->servo_pos = 0;
+    control_state->front_enabled = 1;
+    control_state->rear_enabled = 1;
+    control_state->heartbeat_front = time_ms();
+    control_state->heartbeat_rear = time_ms();
     
     printf("hi hit here \n");
     receive_position_info_t r_args;
@@ -428,7 +450,7 @@ int main()
     receive2_args->s = s;
     receive2_args->control_state = control_state;
     pthread_t receive_can_tid;
-    pthread_create(&receive_can_tid, NULL, receive_can, &s);
+    pthread_create(&receive_can_tid, NULL, receive_can, (void *)receive2_args);
 
     // Init CAN TX thread
     receive_position_info_t s_args;
@@ -439,6 +461,13 @@ int main()
     pthread_create(&send_can_tid, NULL, send_can, (void *)send_args);
 
     while(1){
-        // keep checking the heartbeats and update enabled or disabled? 
+        long count = time_ms() - control_state->heartbeat_front;
+        if (count > HEARTBEAT_TO) {
+            control_state->front_enabled = 0;
+            printf("flipped control_enabled\n");
+        }
+        //printf("count: %ld\n", control_state->heartbeat_front);
+
+        //keep checking the heartbeats and update enabled or disabled? 
     }
 }
