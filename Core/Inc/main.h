@@ -41,6 +41,11 @@ typedef struct {
 	uint8_t throttle;
 }pi_motor_command;
 
+typedef struct {
+	uint16_t pot_reading;
+	uint16_t current_reading;
+}adc_msg;
+
 typedef enum {
 	ERROR_BUTTON = 1,
 	ERROR_BUTTON_RELEASED = 2,

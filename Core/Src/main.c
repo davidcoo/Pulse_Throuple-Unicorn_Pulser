@@ -54,10 +54,12 @@ osThreadId canRecieveHandle;
 osThreadId canTransmitHandle;
 osThreadId selfTestHandle;
 osThreadId steeringHandle;
+osThreadId adcHandle;
 static QueueHandle_t xQueueMotor;
 static QueueHandle_t xQueueSteering;
 static QueueHandle_t xQueueMotorState;
 static QueueHandle_t xQueueCANState;
+static QueueHandle_t xQueueADC;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,6 +70,7 @@ void blink(void const * argument);
 void motor_controller(void const * argument);
 void self_test(void const * argument);
 void steering_task(void const * argument);
+void adc_task(void const * argument);
 
 
 /* USER CODE END PFP */
@@ -116,7 +119,7 @@ int main(void)
   can_init();
   // Front Zone is set and Rear is reset (re re)
   if (zone_indicator == GPIO_PIN_RESET){ // Rear
-	osThreadDef(motorControl, motor_controller, osPriorityHigh, 0, 128);
+	osThreadDef(motorControl, motor_controller, osPriorityNormal, 0, 128);
 	motorControlHandle = osThreadCreate(osThread(motorControl), NULL);
 	osThreadDef(canRecieve, can_rx_rear, osPriorityHigh, 0, 128);
 	canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
@@ -129,10 +132,12 @@ int main(void)
 	pot_sense_init();
 	osThreadDef(canRecieve, can_rx_front, osPriorityHigh, 0, 128);
 	canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
-	osThreadDef(steering, steering_task, osPriorityHigh, 0, 128);
+	osThreadDef(steering, steering_task, osPriorityNormal, 0, 128);
 	steeringHandle = osThreadCreate(osThread(steering), NULL);
 	osThreadDef(canTransmit, can_tx_front, osPriorityNormal, 0, 128);
 	canTransmitHandle = osThreadCreate(osThread(canTransmit), NULL);
+	osThreadDef(adcRead, adc_task, osPriorityNormal, 0, 128);
+	adcHandle = osThreadCreate(osThread(adcRead), NULL);
   }
 
 
@@ -288,6 +293,18 @@ static void MX_GPIO_Init(void)
 
 }
 
+void adc_task(void const * argument){
+	xQueueADC = xQueueCreate( 10,sizeof(adc_msg));
+	for(;;){
+		adc_msg msg;
+		msg.pot_reading = pot_sense_read();
+		msg.current_reading = current_sense_read();
+		if (xQueueSend(xQueueADC, &msg,( TickType_t ) 10) != pdTRUE){
+			msg.pot_reading = 0xFF;
+		}
+	}
+	osDelay(50);
+}
 
 /**
 * @brief Function implementing the can receive thread.
@@ -310,7 +327,6 @@ void can_rx_rear(void const * argument)
 						 ( TickType_t ) 0 ))
 	  {
 		 if (msg.id == 0x100){
-			 set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
 			 pi_motor_command motor_command;
 			 motor_command.brake = msg.msg[0];
 			 motor_command.throttle = msg.msg[1];
@@ -342,7 +358,6 @@ void can_rx_front(void const * argument)
 						 ( TickType_t ) 0 ))
 	  {
 		 if (msg.id == 0x100){
-			 set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
 			 uint8_t steering_angle = msg.msg[2];
 			 xQueueSend(xQueueSteering, &steering_angle,( TickType_t ) 10);
 		 }
@@ -403,6 +418,9 @@ void can_tx_front(void const * argument)
 	uint16_t id = 0x200;
   zone_state_e zone_state = NORMAL;
   zone_state_e zone_state_queue = NORMAL;
+  static uint16_t servo_current;
+  static uint16_t servo_pot;
+  adc_msg adc_reading;
   for(;;)
   {
 	if (xQueueCANState != NULL){
@@ -410,9 +428,13 @@ void can_tx_front(void const * argument)
 			zone_state = zone_state_queue;
 		}
 	}
+	if (xQueueADC != NULL){
+		if (xQueueReceive(xQueueADC, &adc_reading, ( TickType_t ) 0) == pdPASS){
+			servo_current = adc_reading.current_reading;
+			servo_pot = adc_reading.pot_reading;
+		}
+	}
 	// fill in with data
-	uint16_t servo_current = current_sense_read();
-	uint16_t servo_pot = pot_sense_read();
 	data[0] = (uint8_t)(servo_current >> 8);
 	data[1] = (uint8_t)(servo_current & 0xFF);
 	data[2] = (uint8_t)(servo_pot >> 8);

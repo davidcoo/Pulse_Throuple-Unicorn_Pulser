@@ -44,6 +44,9 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
 	{
 		msg.id = RxHeader.StdId;
 		memcpy(msg.msg, RxData, 8);
+		if (msg.id == 0x100){
+			 set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
+		}
 		BaseType_t res = xQueueSendFromISR(xQueueCANRx,(void * )&msg, &xHigherPriorityTaskWoken );
 		if (res == pdTRUE){
 			res = 0;
