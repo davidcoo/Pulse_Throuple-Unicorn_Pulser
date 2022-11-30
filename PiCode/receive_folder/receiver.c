@@ -82,8 +82,8 @@ int main() {
                   (struct sockaddr *) &servaddr, &len);
     uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
     memcpy(&state, recvbuf + 4, sizeof(state));
-    //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
-    printf("%d | %d | %d | %d | %d\n", state.rgbButtons[4], state.rgbButtons[5], state.rglFSlider[0], state.rglFSlider[1], state.rgbButtons[0]);
+    printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
+   // printf("%d | %d | %d | %d | %d\n", state.rgbButtons[4], state.rgbButtons[5], state.rglFSlider[0], state.rglFSlider[1], state.rgbButtons[0]);
   }
 
   return 0;

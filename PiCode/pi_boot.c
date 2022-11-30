@@ -16,6 +16,7 @@
 #include "can_header_temp.h"
 #include <time.h>
 #include <math.h>
+#include <wiringPi.h>
 
 #define BITRATE 500000
 //#define LOCAL_HOST "169.254.81.79"
@@ -33,6 +34,14 @@
 #define MAX_RANGE 32767
 #define MIN_RANGE -32768
 
+#define RESET_BUTTON 27
+
+
+typedef enum {
+    BUTTON_0,
+    BUTTON_1
+} reset_button_state_e;
+
 long old_rounded = 0;
 long time_ms(){
     struct timespec spec;
@@ -42,7 +51,7 @@ long time_ms(){
     if (rounded >= old_rounded) { 
         old_rounded = rounded;
     }
-    else { printf("ERROR: decreased\n");}
+    else { printf("ERROR: decreased. new: %ld, old: %ld\n", rounded, old_rounded);}
     //printf("rounded: %ld\n", rounded);
     return rounded;
 }
@@ -103,6 +112,7 @@ typedef struct {
     blink_button_state_e blink_right_state;
     uint8_t blink_left;
     blink_button_state_e blink_left_state;
+    reset_button_state_e reset_button_state;
     uint16_t servo_current;
     uint16_t servo_pos; // tell which direction to apply the force
     int raw_steering;
@@ -157,6 +167,7 @@ void *send_force(void *args) {
     int8_t force = 0;
     int sockfd;
     struct sockaddr_in servaddr;
+    control_state_t *control_state = (control_state_t *)args;
 
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(S_PORT);
@@ -167,13 +178,15 @@ void *send_force(void *args) {
         exit(EXIT_FAILURE);
     }
 
-    while (1) {
-        usleep(TX_INTERVAL_MS * 1000);
+    while (1) { 
+        usleep(TX_INTERVAL_MS * 100);
        // printf("Send force %d\n", force);
         force += 5;
-        sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
+        if (control_state->front_enabled == 0) force = 0;
+        if (control_state->enabled) { 
+            sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
                 (struct sockaddr *) &servaddr, sizeof(servaddr));
-
+        } else 
     }
 }
 
@@ -188,57 +201,72 @@ void *receive_position(void *args){
     struct sockaddr_in servaddr = receive_args->servaddr;
     control_state_t *control_state = receive_args->control_state;
     // need: sockfd,  servaddr, control_state
-    while(control_state->enabled) {
-        int n, len;
-        n = recvfrom(sockfd, recvbuf, STATE_SIZE, MSG_WAITALL,
-                    (struct sockaddr *) &servaddr, &len);
-        uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
-        memcpy(&state, recvbuf + 4, sizeof(state));
+    while(1) {
+        if (control_state->enabled){
+            int n, len;
+            n = recvfrom(sockfd, recvbuf, STATE_SIZE, MSG_WAITALL,
+                        (struct sockaddr *) &servaddr, &len);
+            uint32_t packet_ct = ((uint32_t*) recvbuf)[0];
+            memcpy(&state, recvbuf + 4, sizeof(state));
 
 
 
-        uint8_t brake_pos = map_brake(state.lRz);
-        uint8_t throttle_pos = map_throttle(state.lY);
-        uint8_t steering_pos = map_steering(state.lX);
+            uint8_t brake_pos = map_brake(state.lRz);
+            uint8_t throttle_pos = map_throttle(state.lY);
+            uint8_t steering_pos = map_steering(state.lX);
 
-        pthread_mutex_lock(&(control_state->mux_pos));
-        control_state->brake_pos = brake_pos;
-        control_state->throttle_pos = throttle_pos;
-        control_state->steering_pos = steering_pos;
-        pthread_mutex_unlock(&(control_state->mux_pos));
-       
-       // printf("rgb button 4: %u, rgb button 5: %d \n", state.rgbButtons[4], state.rgbButtons[5]);
-        pthread_mutex_lock(&(control_state->mux_blink));
-        if (state.rgbButtons[5] > 0) { // Left
-            if (control_state->blink_left_state == BLINK_0) {
-                // toggle blinker - using xor to toggle last bit
-                control_state->blink_left = control_state->blink_left ^ 1;
-                control_state->blink_left_state = BLINK_1;
-            } else if (control_state->blink_left_state == BLINK_1) {
-                // no toggle - button continuously pressed
-                control_state->blink_left_state = BLINK_2;
-            } // else do nothing - stay in BLINK_2
-            // need to debounce this button 
-            //control_state->blink_left = state.rgbButtons[4];
-        } else {
-            control_state->blink_left_state = BLINK_0;
+            pthread_mutex_lock(&(control_state->mux_pos));
+            control_state->brake_pos = brake_pos;
+            control_state->throttle_pos = throttle_pos;
+            control_state->steering_pos = steering_pos;
+            pthread_mutex_unlock(&(control_state->mux_pos));
+        
+        // printf("rgb button 4: %u, rgb button 5: %d \n", state.rgbButtons[4], state.rgbButtons[5]);
+            pthread_mutex_lock(&(control_state->mux_blink));
+            if (state.rgbButtons[5] > 0) { // Left
+                if (control_state->blink_left_state == BLINK_0) {
+                    // toggle blinker - using xor to toggle last bit
+                    control_state->blink_left = control_state->blink_left ^ 1;
+                    control_state->blink_left_state = BLINK_1;
+                } else if (control_state->blink_left_state == BLINK_1) {
+                    // no toggle - button continuously pressed
+                    control_state->blink_left_state = BLINK_2;
+                } // else do nothing - stay in BLINK_2
+                // need to debounce this button 
+                //control_state->blink_left = state.rgbButtons[4];
+            } else {
+                control_state->blink_left_state = BLINK_0;
+            }
+            if (state.rgbButtons[4] > 0) { // Right
+                if (control_state->blink_right_state == BLINK_0) {
+                    // toggle blinker - using xor to toggle last bit
+                    control_state->blink_right = control_state->blink_right ^ 1;
+                    control_state->blink_right_state = BLINK_1;
+                } else if (control_state->blink_right_state == BLINK_1) {
+                    // no toggle - button continuously pressed
+                    control_state->blink_right_state = BLINK_2;
+                } // else do nothing - stay in BLINK_2
+            } else {
+                control_state->blink_right_state = BLINK_0;
+            }
+            pthread_mutex_unlock(&(control_state->mux_blink));
+    }
+    if (digitalRead(RESET_BUTTON)) {
+        // button is being pressed, where should it go? 
+        if (control_state->reset_button_state == BUTTON_0) {
+            control_state->reset_button_state = BUTTON_1; // being held down once
+            control_state->enabled = !(control_state->enabled);
         }
-	if (state.rgbButtons[4] > 0) { // Right
-            if (control_state->blink_right_state == BLINK_0) {
-                // toggle blinker - using xor to toggle last bit
-                control_state->blink_right = control_state->blink_right ^ 1;
-                control_state->blink_right_state = BLINK_1;
-            } else if (control_state->blink_right_state == BLINK_1) {
-                // no toggle - button continuously pressed
-                control_state->blink_right_state = BLINK_2;
-            } // else do nothing - stay in BLINK_2
-        } else {
-            control_state->blink_right_state = BLINK_0;
+    }
+    else {
+        if (control_state->reset_button_state == BUTTON_1){
+            control_state->reset_button_state = BUTTON_0;
         }
-        pthread_mutex_unlock(&(control_state->mux_blink));
+    }
 
         //printf("Receive state (Pkt: %8X) :  Wheel: %d | Throttle: %d | Brake: %d\n", packet_ct, state.lX, state.lY, state.lRz);
     }
+
 }
 
 
@@ -272,7 +300,7 @@ void *send_can(void *args) {
 
             frame.data[6] = 0;
             frame.data[7] = 0;
-            printf("frame: %u %u %u %u %u %u  %u %u \n", frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+            printf("(%ld) frame: %u %u %u %u %u %u  %u %u \n", time_ms(), frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
             nbytes = write (s, &frame, sizeof(frame));
             if (nbytes != sizeof(frame)) {
                 printf("Send error frame[0]\r\n");
@@ -307,34 +335,35 @@ void *receive_can(void *args) {
     printf("s : %d\n", s);
 
     while(1){
-        nbytes = read(s, &frame, sizeof(frame));
+        if (control_state->enabled) {
+            nbytes = read(s, &frame, sizeof(frame));
 
-        if (nbytes > 0){
-            // received a front zone one: 
-            if (frame.can_id == 0x200) {
+            if (nbytes > 0){
+                // received a front zone one: 
+                if (frame.can_id == 0x200) {
 
-                // front zone, 
-                // save force value and
-                pthread_mutex_lock(&(control_state->mux_servo));
-                control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
-                control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
-                pthread_mutex_unlock(&(control_state->mux_servo));
-                // increment heartbeat
-                control_state->heartbeat_front = time_ms();
+                    // front zone, 
+                    // save force value and
+                    pthread_mutex_lock(&(control_state->mux_servo));
+                    control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
+                    control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
+                    pthread_mutex_unlock(&(control_state->mux_servo));
+                    // increment heartbeat
+                    control_state->heartbeat_front = time_ms();
+                }
+                else if (frame.can_id == 0x300){
+                    // keep track of the heartbeat
+                    control_state->heartbeat_rear = time_ms();
+
+                }
             }
-            else if (frame.can_id == 0x300){
-                // keep track of the heartbeat
-                control_state->heartbeat_rear = time_ms();
+            memset(&frame, 0, sizeof(struct can_frame));
 
-            }
+        } else {
 
-            // printf("can_id = 0x%X\r\ncan_dlc = %d \r\n", frame.can_id, frame.can_dlc);
-            // int i =0;
-            // for(i = 0; i < 8; i++) {
-            //     printf("data[%d] = %d\r\n", i, frame.data[i]);
-            // }
+            control_state->heartbeat_front = time_ms();
+            control_state->heartbeat_rear = time_ms(); // don't go into failure due to other zones, while this zone is disabled
         }
-        memset(&frame, 0, sizeof(struct can_frame));
         wait_rest_of_period(&pinfo);
     }
 }
@@ -349,6 +378,9 @@ int main()
     struct can_frame frame;
     control_state_t c_state;
     control_state_t *control_state = &c_state;
+
+    wiringPiSetupGpio();
+    pinMode(RESET_BUTTON, HIGH);
 
     int sockfd;
     char buffer[STATE_SIZE+1];
@@ -368,9 +400,6 @@ int main()
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
-    pthread_t send_tid;
-    pthread_create(&send_tid, NULL, send_force, NULL);
-
 
     memset(&frame, 0, sizeof(struct can_frame));
 
@@ -426,6 +455,7 @@ int main()
     control_state->rear_enabled = 1;
     control_state->heartbeat_front = time_ms();
     control_state->heartbeat_rear = time_ms();
+    control_state->reset_button_state = BUTTON_0;
     
     printf("hi hit here \n");
     receive_position_info_t r_args;
@@ -440,9 +470,11 @@ int main()
     pthread_mutex_init(&(control_state->mux_servo), NULL);
    
 
-    // Init steering wheel communication thread
+    // Init steering wheel communication threads
     pthread_t receive_tid;
     pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
+    pthread_t send_tid;
+    pthread_create(&send_tid, NULL, send_force, (void*)control_state);
 
     // Init CAN RX thread
     receive_position_info_t r2_args;
@@ -464,7 +496,7 @@ int main()
         long count = time_ms() - control_state->heartbeat_front;
         if (count > HEARTBEAT_TO) {
             control_state->front_enabled = 0;
-            printf("flipped control_enabled\n");
+            //printf("flipped front_enabled\n");
         }
         //printf("count: %ld\n", control_state->heartbeat_front);
 
