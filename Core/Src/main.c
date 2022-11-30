@@ -54,10 +54,15 @@ osThreadId canRecieveHandle;
 osThreadId canTransmitHandle;
 osThreadId selfTestHandle;
 osThreadId steeringHandle;
+osThreadId adcHandle;
 static QueueHandle_t xQueueMotor;
 static QueueHandle_t xQueueSteering;
 static QueueHandle_t xQueueMotorState;
 static QueueHandle_t xQueueCANState;
+static QueueHandle_t xQueueADC;
+static QueueHandle_t xQueueCANwatchdog;
+static uint8_t CHECK_WATCHDOG = 0;
+static uint32_t CAN_THRESH = 50;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,7 +73,7 @@ void blink(void const * argument);
 void motor_controller(void const * argument);
 void self_test(void const * argument);
 void steering_task(void const * argument);
-
+void adc_task(void const * argument);
 
 /* USER CODE END PFP */
 void can_rx_rear(void const * argument);
@@ -116,7 +121,7 @@ int main(void)
   can_init();
   // Front Zone is set and Rear is reset (re re)
   if (zone_indicator == GPIO_PIN_RESET){ // Rear
-	osThreadDef(motorControl, motor_controller, osPriorityHigh, 0, 128);
+	osThreadDef(motorControl, motor_controller, osPriorityNormal, 0, 128);
 	motorControlHandle = osThreadCreate(osThread(motorControl), NULL);
 	osThreadDef(canRecieve, can_rx_rear, osPriorityHigh, 0, 128);
 	canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
@@ -129,10 +134,12 @@ int main(void)
 	pot_sense_init();
 	osThreadDef(canRecieve, can_rx_front, osPriorityHigh, 0, 128);
 	canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
-	osThreadDef(steering, steering_task, osPriorityHigh, 0, 128);
+	osThreadDef(steering, steering_task, osPriorityNormal, 0, 128);
 	steeringHandle = osThreadCreate(osThread(steering), NULL);
 	osThreadDef(canTransmit, can_tx_front, osPriorityNormal, 0, 128);
 	canTransmitHandle = osThreadCreate(osThread(canTransmit), NULL);
+	osThreadDef(adcRead, adc_task, osPriorityNormal, 0, 128);
+	adcHandle = osThreadCreate(osThread(adcRead), NULL);
   }
 
 
@@ -171,7 +178,7 @@ int main(void)
 
 
 
-  osThreadDef(selfTest, self_test, osPriorityNormal, 0, 128);
+  osThreadDef(selfTest, self_test, osPriorityNormal, 0, 64);
   selfTestHandle = osThreadCreate(osThread(selfTest), NULL);
 
 
@@ -288,6 +295,19 @@ static void MX_GPIO_Init(void)
 
 }
 
+void adc_task(void const * argument){
+	xQueueADC = xQueueCreate( 10,sizeof(adc_msg));
+	for(;;){
+		adc_msg msg;
+		msg.pot_reading = pot_sense_read();
+		msg.current_reading = current_sense_read();
+		if (xQueueSend(xQueueADC, &msg,( TickType_t ) 10) != pdTRUE){
+			msg.pot_reading = 0xFF;
+		}
+	}
+	osDelay(50);
+}
+
 
 /**
 * @brief Function implementing the can receive thread.
@@ -298,6 +318,12 @@ static void MX_GPIO_Init(void)
 void can_rx_rear(void const * argument)
 {
   /* USER CODE BEGIN blink */
+	// CAN Watchdog
+	xQueueCANwatchdog = xQueueCreate( 10,sizeof(uint8_t));
+	static uint32_t front_count = 0;
+	static uint32_t control_count = 0;
+	static uint8_t watchdog  = 0;
+	static uint32_t send_count = 0;  // Don't want to send always bc this task is fast
 	can_msg_t msg;
 	xQueueMotor = xQueueCreate( 10,sizeof(pi_motor_command));
   /* Infinite loop */
@@ -310,18 +336,33 @@ void can_rx_rear(void const * argument)
 						 ( TickType_t ) 0 ))
 	  {
 		 if (msg.id == 0x100){
-			 set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
+			 //set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
 			 pi_motor_command motor_command;
 			 motor_command.brake = msg.msg[0];
 			 motor_command.throttle = msg.msg[1];
 			 xQueueSend(xQueueMotor, &motor_command,( TickType_t ) 10);
 		 }
-		 else if (msg.id == 0x446){
-			 HAL_GPIO_TogglePin(MCU_IND_GPIO_Port, MCU_IND_Pin);
+		 if (msg.id == 0x200){
+			 front_count = 0;
+		 }
+		 if (msg.id == 0x100){
+			 control_count = 0;
 		 }
 	  }
 	}
-	osDelay(10);
+	front_count++;
+	control_count++;
+	if (CHECK_WATCHDOG && (front_count > CAN_THRESH || control_count > CAN_THRESH)){
+		watchdog = 1;
+	}
+	else{
+		watchdog = 0;
+	}
+	send_count++;
+	if (send_count > 3){
+		xQueueSend(xQueueCANwatchdog, &watchdog,( TickType_t ) 10);
+	}
+	osDelay(5);
   }
   /* USER CODE END blink */
 }
@@ -332,6 +373,12 @@ void can_rx_front(void const * argument)
   /* USER CODE BEGIN blink */
 	can_msg_t msg;
 	xQueueSteering = xQueueCreate( 10,sizeof(uint8_t));
+	// CAN Watchdog
+	xQueueCANwatchdog = xQueueCreate( 10,sizeof(uint8_t));
+	static uint32_t rear_count = 0;
+	static uint32_t control_count = 0;
+	static uint8_t watchdog  = 0;
+	static uint32_t send_count = 0;  // Don't want to send always bc this task is fast
   /* Infinite loop */
   for(;;)
   {
@@ -342,16 +389,32 @@ void can_rx_front(void const * argument)
 						 ( TickType_t ) 0 ))
 	  {
 		 if (msg.id == 0x100){
-			 set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
+			 //set_blinkers(msg.msg[3],msg.msg[4],msg.msg[5]);
 			 uint8_t steering_angle = msg.msg[2];
 			 xQueueSend(xQueueSteering, &steering_angle,( TickType_t ) 10);
 		 }
-		 else if (msg.id == 0x446){
-			 HAL_GPIO_TogglePin(MCU_IND_GPIO_Port, MCU_IND_Pin);
+		 if (msg.id == 0x300){
+			 rear_count = 0;
 		 }
+		 if (msg.id == 0x100){
+			 control_count = 0;
+		 }
+
 	  }
 	}
-	osDelay(10);
+	rear_count++;
+	control_count++;
+	if (CHECK_WATCHDOG && (rear_count > CAN_THRESH || control_count > CAN_THRESH)){
+		watchdog = 1;
+	}
+	else{
+		watchdog = 0;
+	}
+	send_count++;
+	if (send_count > 3){
+		xQueueSend(xQueueCANwatchdog, &watchdog,( TickType_t ) 10);
+	}
+	osDelay(5);
   }
   /* USER CODE END blink */
 }
@@ -403,6 +466,9 @@ void can_tx_front(void const * argument)
 	uint16_t id = 0x200;
   zone_state_e zone_state = NORMAL;
   zone_state_e zone_state_queue = NORMAL;
+  static uint16_t servo_current;
+  static uint16_t servo_pot;
+  adc_msg adc_reading;
   for(;;)
   {
 	if (xQueueCANState != NULL){
@@ -410,9 +476,13 @@ void can_tx_front(void const * argument)
 			zone_state = zone_state_queue;
 		}
 	}
+	if (xQueueADC != NULL){
+			if (xQueueReceive(xQueueADC, &adc_reading, ( TickType_t ) 0) == pdPASS){
+				servo_current = adc_reading.current_reading;
+				servo_pot = adc_reading.pot_reading;
+			}
+		}
 	// fill in with data
-	uint16_t servo_current = current_sense_read();
-	uint16_t servo_pot = pot_sense_read();
 	data[0] = (uint8_t)(servo_current >> 8);
 	data[1] = (uint8_t)(servo_current & 0xFF);
 	data[2] = (uint8_t)(servo_pot >> 8);
@@ -512,11 +582,18 @@ void self_test(void const * argument){
 
 	xQueueMotorState = xQueueCreate( 10,sizeof(zone_state_e));
 	xQueueCANState = xQueueCreate( 10,sizeof(zone_state_e));
-
+	uint8_t watchdog = 0;
+	uint8_t watchdog_queue = 0;
 
 	for (;;){
+		// Getting watchdog
+		if (xQueueCANwatchdog != NULL){
+			if (xQueueReceive(xQueueCANwatchdog, &watchdog_queue, ( TickType_t ) 0) == pdPASS){
+				watchdog = watchdog_queue;
+			}
+		}
+		// Button debouncing
 		GPIO_PinState button = HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin);
-		// debounce button
 		if (button == GPIO_PIN_SET){
 			button_debounce = (button_debounce << 1) | 1;
 		}
@@ -529,11 +606,16 @@ void self_test(void const * argument){
 		else if (button_debounce == 0 && button_state == 1){
 			button_state = 0;
 		}
+		// Statechart
 		switch (zone_state) {
 			case NORMAL:
 				if (button_state == 1) {
 					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
 					zone_state = ERROR_BUTTON;
+				}
+				else if (watchdog == 1){
+					zone_state = ERROR_HB;
+					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
 				}
 				break;
 			case NORMAL_PUSHED:
@@ -551,6 +633,12 @@ void self_test(void const * argument){
 			case ERROR_BUTTON_RELEASED:
 				if (button_state == 1){
 					zone_state = NORMAL_PUSHED;
+					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_RESET);
+				}
+				break;
+			case ERROR_HB:
+				if (watchdog == 0){
+					zone_state = NORMAL;
 					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_RESET);
 				}
 				break;
