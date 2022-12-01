@@ -34,8 +34,11 @@
 #define MAX_RANGE 32767
 #define MIN_RANGE -32768
 
-#define RESET_BUTTON 27
+#define RESET_BUTTON 18
 
+
+// do the thresholds for left and right turn 
+// run safe exit!
 
 typedef enum {
     BUTTON_0,

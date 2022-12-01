@@ -1,18 +1,26 @@
-import RPi.GPIO as GPIO                                                 # Import the GPIO module as 'GPIO'                                                           # Import the Nintendo Wii controller module
-
-import time                                                             # Import the 'time' module
+import RPi.GPIO as GPIO                                                                                                         
+import sys
+import time                                                             
 
 import random
+import sysv_ipc
+GPIO.setmode (GPIO.BCM)                                                 
 
-GPIO.setmode (GPIO.BCM)                                                 # Set the GPIO mode to BCM numbering
+TRIG_FRONT = 17
+ECHO_FRONT = 27
+TRIG_LEFT = 5
+ECHO_LEFT = 6
+TRIG_RIGHT = 20                                                               # Trigger output for the ultrasonic sensor
+ECHO_RIGHT = 21                                                               # Echo return from the ultrasonic sensor
 
-trig = 17                                                               # Trigger output for the ultrasonic sensor
-echo = 27                                                               # Echo return from the ultrasonic sensor
 
+# can use (17, 27), (5, 6), (20, 21)
 
-def get_distance ():
-    global trig, echo                                                   # Allow access to 'trig' and 'echo' constants
+# source code: https://forums.raspberrypi.com/viewtopic.php?t=77534 #godbless
+def get_distance (trig_t, echo_t):
 
+    trig = trig_t
+    echo = echo_t
     if GPIO.input (echo):                                               # If the 'Echo' pin is already high
         return (100)                                                    # then exit with 100 (sensor fault)
 
@@ -55,7 +63,33 @@ def get_distance ():
     return (distance)                                                   # Exit with the distance in centimetres
 
 
-GPIO.setup(trig, GPIO.OUT)
-GPIO.setup(echo, GPIO.IN)
-while (1):
-    print(get_distance())
+GPIO.setwarnings(False)
+sides = sys.argv[1: ]
+active_sensors = []
+if "LEFT" not in sides and "RIGHT" not in sides and "FRONT" not in sides:
+    print("Please enter a valid sensor direction.")
+    sys.exit()
+if "LEFT" in sides: 
+    GPIO.setup(TRIG_LEFT, GPIO.OUT)
+    GPIO.setup(ECHO_LEFT, GPIO.IN)
+    active_sensors.append("left")
+if "RIGHT" in sides:
+    GPIO.setup(TRIG_RIGHT, GPIO.OUT)
+    GPIO.setup(ECHO_RIGHT, GPIO.IN)
+    active_sensors.append("right")
+if "FRONT" in sides:
+    GPIO.setup(TRIG_FRONT, GPIO.OUT)
+    GPIO.setup(ECHO_FRONT, GPIO.IN)
+    active_sensors.append("front")
+
+memory = sysv_ipc.SharedMemory(0x1234)
+memory.write("I am testing a  write")
+
+# only need to write if you are below the value? 
+# i = memory_value.find('\0')
+# if i != -1:
+#     memory_value = memory_value[:i]
+while(1):
+    pass
+# while (1):
+#     print(get_distance(TRIG_RIGHT, ECHO_RIGHT))
