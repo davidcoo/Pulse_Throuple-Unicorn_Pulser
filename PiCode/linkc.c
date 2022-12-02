@@ -29,7 +29,6 @@ int set_up(){
       return 1;
    }
    
-   // Attach to the segment to get a pointer to it.
    shmp = shmat(shmid, NULL, 0);
    if (shmp == (void *) -1) {
       perror("Shared memory attach");
@@ -49,8 +48,6 @@ int test_vals(){
 int write_vals(char *values[]) {
    printf("values: %s\n", values);
    char bufvals[16];
-   //int shmid, numtimes;
-   //struct shmseg *shmp;
    int numtimes;
    char *bufptr;
    int spaceavailable;
@@ -61,40 +58,33 @@ int write_vals(char *values[]) {
    memcpy(bufvals, values, 16);
    bufptr = shmp->buf;
    spaceavailable = 16;
-   for (numtimes = 0; numtimes < 5; numtimes++) {
-      shmp->cnt = fill_buffer(bufptr, bufvals, spaceavailable);
-      shmp->complete = 0;
-      printf("Writing Process: Shared Memory Write: Wrote %d bytes\n", shmp->cnt);
-      bufptr = shmp->buf;
-      spaceavailable = 16;
-      sleep(1);
-   }
-   printf("Writing Process: Wrote %d times\n", numtimes);
+   shmp->cnt = fill_buffer(bufptr, bufvals, spaceavailable);
+   shmp->complete = 0;
+   printf("Writing Process: Shared Memory Write: Wrote %d bytes\n", shmp->cnt);
+   bufptr = shmp->buf;
+   spaceavailable = 16;   
+   return 0;
+}
+
+void cleanup() {
    shmp->complete = 1;
 
    if (shmdt(shmp) == -1) {
       perror("shmdt");
-      return 1;
    }
 
    if (shmctl(shmid, IPC_RMID, 0) == -1) {
       perror("shmctl");
-      return 1;
    }
+   printf("shmid: %d\n", shmid);
    printf("Writing Process: Complete\n");
-   return 0;
 }
 
 int fill_buffer(char * bufptr, char *values, int size) {
    int filled_count;
    char src[] = "what's up dogs!";
-   //printf("size is %d\n", size);
    memcpy(bufptr, values, size-1);
-   //memset(bufptr, ch, size - 1);
    bufptr[size-1] = '\0';
    filled_count = strlen(bufptr);
-   
-   //printf("buffer count is: %d\n", filled_count);
-   //printf("buffer filled is:%s\n", bufptr);
    return filled_count;
 }

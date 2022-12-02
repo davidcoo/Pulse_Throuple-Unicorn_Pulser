@@ -33,6 +33,8 @@ int main(int argc, char *argv[]) {
       perror("Shared memory attach");
       return 1;
    }
+
+   system("python3 ../linkpy.py");
    
    /* Transfer blocks of data from shared memory to stdout*/
    while (shmp->complete != 1) {
@@ -49,6 +51,7 @@ int main(int argc, char *argv[]) {
       perror("shmdt");
       return 1;
    }
+   printf("shmid: %d\n", shmid);
    printf("Reading Process: Complete\n");
    return 0;
 }
