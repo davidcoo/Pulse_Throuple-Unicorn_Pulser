@@ -66,30 +66,35 @@ def get_distance (trig_t, echo_t):
 GPIO.setwarnings(False)
 sides = sys.argv[1: ]
 active_sensors = []
-if "LEFT" not in sides and "RIGHT" not in sides and "FRONT" not in sides:
+if "ALL" not in sides and "LEFT" not in sides and "RIGHT" not in sides and "FRONT" not in sides:
     print("Please enter a valid sensor direction.")
     sys.exit()
+if "ALL" in sides: 
+    sides = ["LEFT", "RIGHT", "FRONT"]
 if "LEFT" in sides: 
     GPIO.setup(TRIG_LEFT, GPIO.OUT)
     GPIO.setup(ECHO_LEFT, GPIO.IN)
-    active_sensors.append("left")
 if "RIGHT" in sides:
     GPIO.setup(TRIG_RIGHT, GPIO.OUT)
     GPIO.setup(ECHO_RIGHT, GPIO.IN)
-    active_sensors.append("right")
 if "FRONT" in sides:
     GPIO.setup(TRIG_FRONT, GPIO.OUT)
     GPIO.setup(ECHO_FRONT, GPIO.IN)
-    active_sensors.append("front")
 
-memory = sysv_ipc.SharedMemory(0x1234)
-memory.write("I am testing a  write")
-
-# only need to write if you are below the value? 
-# i = memory_value.find('\0')
-# if i != -1:
-#     memory_value = memory_value[:i]
 while(1):
-    pass
-# while (1):
-#     print(get_distance(TRIG_RIGHT, ECHO_RIGHT))
+    if "LEFT" in sides:
+        l = get_distance(TRIG_LEFT, ECHO_LEFT)
+        print("L: ", l)
+    if "RIGHT" in sides:
+        r = get_distance(TRIG_RIGHT, ECHO_RIGHT)
+        print("R: ", r)
+    if "FRONT" in sides: 
+        f = get_distance(TRIG_FRONT, ECHO_FRONT)
+        print("F: ",f)
+    if r < 20:
+        break
+
+
+print("HI")
+
+    
