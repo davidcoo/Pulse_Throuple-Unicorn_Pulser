@@ -16,6 +16,7 @@ struct shmseg {
    int complete;
    char buf[BUF_SIZE];
 };
+// this keeps looping until it says to stop 
 
 int main(int argc, char *argv[]) {
    int shmid;
