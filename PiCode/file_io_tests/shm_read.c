@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
          return 1;
       }
       printf("Reading Process: Shared Memory: Read %d bytes\n", shmp->cnt);
-      sleep(3);
+      sleep(1);
    }
    printf("Reading Process: Reading Done, Detaching Shared Memory\n");
    if (shmdt(shmp) == -1) {

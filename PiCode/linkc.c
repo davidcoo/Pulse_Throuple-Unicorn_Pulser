@@ -19,13 +19,10 @@ struct shmseg {
 };
 int fill_buffer(char * bufptr, char *values, int size);
 
-int write_vals(char *values[]) {
-   printf("values: %s\n", values);
-   char bufvals[16];
-   int shmid, numtimes;
-   struct shmseg *shmp;
-   char *bufptr;
-   int spaceavailable;
+int shmid;
+struct shmseg *shmp;
+
+int set_up(){
    shmid = shmget(SHM_KEY, sizeof(struct shmseg), 0644|IPC_CREAT);
    if (shmid == -1) {
       perror("Shared memory");
@@ -37,13 +34,31 @@ int write_vals(char *values[]) {
    if (shmp == (void *) -1) {
       perror("Shared memory attach");
       return 1;
-   }
-   printf("please work here\n");
+   } 
+   return 0;
+
+}
+
+int test_vals(){
+   printf("shmid: %d \n", shmid);
+   (void)(shmp->cnt);
+   (void)(shmp->complete);
+   (void)(shmp->buf);
+   return shmp->cnt;
+}
+int write_vals(char *values[]) {
+   printf("values: %s\n", values);
+   char bufvals[16];
+   //int shmid, numtimes;
+   //struct shmseg *shmp;
+   int numtimes;
+   char *bufptr;
+   int spaceavailable;
+   
+
    /* Transfer blocks of data from buffer to shared memory */
    memset(bufvals, 0, 16);
-   printf("working \n");
    memcpy(bufvals, values, 16);
-   printf("bufvals: %s\n", bufvals);
    bufptr = shmp->buf;
    spaceavailable = 16;
    for (numtimes = 0; numtimes < 5; numtimes++) {
@@ -52,7 +67,7 @@ int write_vals(char *values[]) {
       printf("Writing Process: Shared Memory Write: Wrote %d bytes\n", shmp->cnt);
       bufptr = shmp->buf;
       spaceavailable = 16;
-      sleep(3);
+      sleep(1);
    }
    printf("Writing Process: Wrote %d times\n", numtimes);
    shmp->complete = 1;
@@ -71,24 +86,15 @@ int write_vals(char *values[]) {
 }
 
 int fill_buffer(char * bufptr, char *values, int size) {
-   static char ch = 'A';
    int filled_count;
    char src[] = "what's up dogs!";
    //printf("size is %d\n", size);
    memcpy(bufptr, values, size-1);
    //memset(bufptr, ch, size - 1);
    bufptr[size-1] = '\0';
-   if (ch > 122)
-   ch = 65;
-   if ( (ch >= 65) && (ch <= 122) ) {
-      if ( (ch >= 91) && (ch <= 96) ) {
-         ch = 65;
-      }
-   }
    filled_count = strlen(bufptr);
    
    //printf("buffer count is: %d\n", filled_count);
    //printf("buffer filled is:%s\n", bufptr);
-   ch++;
    return filled_count;
 }
