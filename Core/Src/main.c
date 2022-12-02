@@ -40,7 +40,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define CHECK_HB 1
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -129,6 +129,8 @@ int main(void)
 	canRecieveHandle = osThreadCreate(osThread(canRecieve), NULL);
 	osThreadDef(canTransmit, can_tx_rear, osPriorityNormal, 0, 128);
 	canTransmitHandle = osThreadCreate(osThread(canTransmit), NULL);
+	osThreadDef(selfTest, self_test, osPriorityLow, 0, 128);
+	selfTestHandle = osThreadCreate(osThread(selfTest), NULL);
   }
   else{ // Front
 	servo_init();
@@ -142,6 +144,8 @@ int main(void)
 	canTransmitHandle = osThreadCreate(osThread(canTransmit), NULL);
 	osThreadDef(adcRead, adc_task, osPriorityNormal, 0, 128);
 	adcHandle = osThreadCreate(osThread(adcRead), NULL);
+	osThreadDef(selfTest, self_test, osPriorityLow, 0, 128);
+	selfTestHandle = osThreadCreate(osThread(selfTest), NULL);
   }
 
 
@@ -180,8 +184,7 @@ int main(void)
 
 
 
-  osThreadDef(selfTest, self_test, osPriorityNormal, 0, 128);
-  selfTestHandle = osThreadCreate(osThread(selfTest), NULL);
+
 
 
 
@@ -307,7 +310,7 @@ void adc_task(void const * argument){
 			msg.pot_reading = 0xFF;
 		}
 	}
-	osDelay(50);
+	osDelay(100);
 }
 
 /**
@@ -323,29 +326,32 @@ void can_rx_rear(void const * argument)
 	xQueueMotor = xQueueCreate( 10,sizeof(pi_motor_command));
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-	uint32_t timer_1 = 0;
-	uint32_t timer_4 = 0;
   /* Infinite loop */
   for(;;)
   {
-	timer_1 = TIM1->CNT;
-	timer_4 = TIM4->CNT;
 	if( xQueueCANRx != NULL )
 	{
 	  if( xQueueReceive( xQueueCANRx,
 						 &( msg ),
 						 ( TickType_t ) 0 ))
 	  {
-		 if (msg.id == 0x100){
+		 if (msg.id == 0x100){ // control
 			 pi_motor_command motor_command;
 			 motor_command.brake = msg.msg[0];
 			 motor_command.throttle = msg.msg[1];
 			 xQueueSend(xQueueMotor, &motor_command,( TickType_t ) 10);
+			 TIM4->CNT = 0;
 		 }
-		 else if (msg.id == 0x446){
-			 HAL_GPIO_TogglePin(MCU_IND_GPIO_Port, MCU_IND_Pin);
+		 else if (msg.id == 0x200){ // front
+			 TIM1->CNT = 0;
 		 }
 	  }
+	}
+	if (TIM1->CNT > 10000){
+		TIM1->CNT = 1000;
+	}
+	if (TIM4->CNT > 10000){
+		TIM4->CNT = 1000;
 	}
 	osDelay(10);
   }
@@ -361,13 +367,9 @@ void can_rx_front(void const * argument)
   /* Infinite loop */
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-	uint32_t timer_1 = 0;
-	uint32_t timer_4 = 0;
   /* Infinite loop */
   for(;;)
   {
-	  timer_1 = TIM1->CNT;
-	  timer_4 = TIM4->CNT;
 	if( xQueueCANRx != NULL )
 	{
 	  if( xQueueReceive( xQueueCANRx,
@@ -377,11 +379,18 @@ void can_rx_front(void const * argument)
 		 if (msg.id == 0x100){
 			 uint8_t steering_angle = msg.msg[2];
 			 xQueueSend(xQueueSteering, &steering_angle,( TickType_t ) 10);
+			 TIM4->CNT = 0;
 		 }
-		 else if (msg.id == 0x446){
-			 HAL_GPIO_TogglePin(MCU_IND_GPIO_Port, MCU_IND_Pin);
+		 else if (msg.id == 0x300){ // rear
+			 TIM1->CNT = 0;
 		 }
 	  }
+	}
+	if (TIM1->CNT > 10000){
+		TIM1->CNT = 1000;
+	}
+	if (TIM4->CNT > 10000){
+		TIM4->CNT = 1000;
 	}
 	osDelay(10);
   }
@@ -424,7 +433,7 @@ void can_tx_rear(void const * argument)
 		throuple_can_tx(id, data);
 		break;
 	}
-	osDelay(20);
+	osDelay(50);
   }
 }
 
@@ -472,7 +481,7 @@ void can_tx_front(void const * argument)
 		throuple_can_tx(id, data);
 		break;
 	}
-	osDelay(20);
+	osDelay(50);
   }
 }
 
@@ -539,7 +548,7 @@ void steering_task(void const * argument){
 			}
 		}
 		set_servo_pos(steering_angle);
-		osDelay(10);
+		osDelay(20);
 	}
 }
 
@@ -574,6 +583,10 @@ void self_test(void const * argument){
 					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
 					zone_state = ERROR_BUTTON;
 				}
+				if (CHECK_HB && (TIM1->CNT > 500 || TIM4->CNT > 500)){
+					zone_state = ERROR_HB;
+					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_SET);
+				}
 				break;
 			case NORMAL_PUSHED:
 				if (button_state == 0){
@@ -593,10 +606,16 @@ void self_test(void const * argument){
 					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_RESET);
 				}
 				break;
+			case ERROR_HB:
+				if (TIM1->CNT < 500 && TIM4->CNT < 500){
+					zone_state = NORMAL;
+					HAL_GPIO_WritePin(MCU_IND_GPIO_Port,MCU_IND_Pin,GPIO_PIN_RESET);
+				}
+				break;
 		}
 		xQueueSend(xQueueMotorState, &zone_state,( TickType_t ) 10);
 		xQueueSend(xQueueCANState, &zone_state,( TickType_t ) 10);
-		osDelay(10);
+		osDelay(100);
 	}
 }
 
