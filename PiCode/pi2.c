@@ -17,6 +17,13 @@
 #include <time.h>
 #include <math.h>
 #include <wiringPi.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <signal.h>
+#include <errno.h>
+
+#define BUF_SIZE 1024
+#define SHM_KEY 0x1234
 
 #define BITRATE 500000
 //#define LOCAL_HOST "169.254.81.79"
@@ -36,13 +43,16 @@
 
 #define RESET_BUTTON 18
 
-#define LEFT_STEER_TH1 35
-#define LEFT_STEER_TH2 45
-#define RIGHT_STEER_TH1 65
-#define RIGHT_STEER_TH2 55
+#define LEFT_STEER_THRESHOLD 40
+#define RIGHT_STEER_THRESHOLD 60
 
 // do the thresholds for left and right turn 
 // run safe exit!
+struct shmseg {
+   int cnt;
+   int complete;
+   char buf[BUF_SIZE];
+};
 
 typedef enum {
     BUTTON_0,
@@ -271,59 +281,13 @@ void *receive_position(void *args){
             } else {
                 control_state->right_trig_state = BLINK_0;
             }
-            // Turn and blinkers state machines - left
-            blink_turn_state_e nextL = control_state->left_turn_state;
-            switch(control_state->left_turn_state) {
-                case BLINK_OFF:
-                    // check if right is on, turn off first
-                    if(control_state->right_turn_state == BLINK_ACTIVE) {
-                        control_state->right_turn_state = BLINK_OFF;
-                    }
-                    if (control_state->blink_left) {
-                        nextL = BLINK_ACTIVE;
-                    } // stay off if not
-                    break;
-                case BLINK_ACTIVE:
-                    if (control_state->steering_pos < LEFT_STEER_TH1) {
-                        nextL = TURN_PASS_TH1;
-                    }
-                    break;
-                case TURN_PASS_TH1:
-                    if (control_state->steering_pos > LEFT_STEER_TH2) {
-                        nextL = BLINK_OFF;
-                        control_state->blink_left = 0;
-                    }
-                    break;
-                default: break;
+            // Turn off bimkers when steering reaches threshold
+            if (control_state->blink_left && control_state->steering_pos < LEFT_STEER_THRESHOLD) {
+                control_state->blink_left = 0;
             }
-            control_state->left_turn_state = nextL;
-            // Turn and blinkers state machines - right
-            blink_turn_state_e nextR = control_state->right_turn_state;
-            switch(control_state->right_turn_state) {
-                case BLINK_OFF:
-                    if(control_state->left_turn_state == BLINK_ACTIVE) {
-                        control_state->left_turn_state = BLINK_OFF;
-                    }
-                    if (control_state->blink_right) {
-                        nextR = BLINK_ACTIVE;
-                    } // stay off if not
-                    break;
-                case BLINK_ACTIVE:
-                    if (control_state->steering_pos > RIGHT_STEER_TH1) {
-                        nextR = TURN_PASS_TH1;
-                    }
-                    break;
-                case TURN_PASS_TH1:
-                    if (control_state->steering_pos < RIGHT_STEER_TH2) {
-                        nextR = BLINK_OFF;
-                        control_state->blink_right = 0;
-                    }
-                    break;
-                default:
-                    nextR = BLINK_OFF; 
-                    break;
-            }
-            control_state->right_turn_state = nextR;
+            if (control_state->blink_right && control_state->steering_pos > RIGHT_STEER_THRESHOLD) {
+                control_state->blink_right = 0;
+            }   
             pthread_mutex_unlock(&(control_state->mux_blink));
         }
         if (digitalRead(RESET_BUTTON)) {
@@ -379,7 +343,6 @@ void *send_can(void *args) {
             nbytes = write (s, &frame, sizeof(frame));
             if (nbytes != sizeof(frame)) {
                 printf("Send error frame[0]\r\n");
-                system("sudo ifconfig can0 down");
             }
         }
         wait_rest_of_period(&pinfo);
@@ -443,17 +406,64 @@ void *receive_can(void *args) {
     }
 }
 
+int shmid;
+struct shmseg *shmp;
+
+void *collision_detection() {
+    // basically the system read
+   
+   /* Transfer blocks of data from shared memory to stdout*/
+    struct period_info pinfo;
+    periodic_task_init(&pinfo, 10000000); //10 ms period
+
+    while (shmp->complete != 1) {
+        //printf("segment contains : \n\"%s\"\n", shmp->buf);
+        if (shmp->cnt == -1) {
+            perror("read");
+        }
+        //printf("Reading Process: Shared Memory: Read %d bytes\n", shmp->cnt);
+        // a periodic thing 
+        wait_rest_of_period(&pinfo);
+    }
+}
+
+void clean_up(){
+    if (shmdt(shmp) == -1) {
+        perror("shmdt");
+    }
+
+   if (shmctl(shmid, IPC_RMID, 0) == -1) {
+      perror("shmctl");
+   }
+}
+int s; 
+pid_t pid_right;
+
+
+void sigint_handler(int signum){
+    kill(pid_right, SIGINT);
+    close(s);
+    system("sudo ifconfig can0 down");
+    clean_up();
+    exit(1);
+}
 int main()
 {
     // first set up CAN
+    // handler for control C to call cleanup
+    signal(SIGINT, sigint_handler);
+    pid_right = fork();
+    if (pid_right == 0){
+        execlp("python3", "python3", "ultra.py", "RIGHT", NULL);
+    }
     int ret;
-    int s, nbytes;
+    int nbytes;
     struct sockaddr_can addr;
     struct ifreq ifr;
     struct can_frame frame;
     control_state_t c_state;
     control_state_t *control_state = &c_state;
-    
+
     wiringPiSetupGpio();
     pinMode(RESET_BUTTON, HIGH);
 
@@ -546,9 +556,10 @@ int main()
     pthread_mutex_init(&(control_state->mux_blink), NULL);
     pthread_mutex_init(&(control_state->mux_servo), NULL);
    
-
-    // Init steering wheel communication threads
+    pthread_t send_can_tid;
     pthread_t receive_tid;
+    // Init steering wheel communication threads
+  
     pthread_create(&receive_tid, NULL, receive_position, (void *)receive_args);
     pthread_t send_tid;
     pthread_create(&send_tid, NULL, send_force, (void*)control_state);
@@ -566,8 +577,25 @@ int main()
     receive_position_info_t *send_args = &s_args;
     send_args->s = s;
     send_args->control_state = control_state;
-    pthread_t send_can_tid;
     pthread_create(&send_can_tid, NULL, send_can, (void *)send_args);
+
+    shmid = shmget(SHM_KEY, sizeof(struct shmseg), 0644|IPC_CREAT);
+    if (shmid == -1) {
+        perror("Shared memory");
+        return 1;
+    }
+    
+    // Attach to the segment to get a pointer to it.
+    shmp = shmat(shmid, NULL, 0);
+    if (shmp == (void *) -1) {
+        perror("Shared memory attach");
+        return 1;
+    }
+
+    receive_position_info_t c_args;
+    receive_position_info_t *collision_args;
+    pthread_t collision_tid;
+    pthread_create(&collision_tid, NULL, collision_detection, (void *)collision_args);
 
     while(1){
         long count = time_ms() - control_state->heartbeat_front;

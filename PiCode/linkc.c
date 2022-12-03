@@ -21,7 +21,7 @@ int fill_buffer(char * bufptr, char *values, int size);
 
 int shmid;
 struct shmseg *shmp;
-
+int enabled = 1;
 int set_up(){
    shmid = shmget(SHM_KEY, sizeof(struct shmseg), 0644|IPC_CREAT);
    if (shmid == -1) {
@@ -46,7 +46,6 @@ int test_vals(){
    return shmp->cnt;
 }
 int write_vals(char *values[]) {
-   printf("values: %s\n", values);
    char bufvals[16];
    int numtimes;
    char *bufptr;
