@@ -66,6 +66,7 @@ def get_distance (trig_t, echo_t):
     return (distance)                                                   # Exit with the distance in centimetres
 
 def signal_handler(sig, frame):
+    # set the write->complete to 1? 
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -89,7 +90,7 @@ if "LEFT" in sides:
     GPIO.setup(TRIG_LEFT, GPIO.OUT)
     GPIO.setup(ECHO_LEFT, GPIO.IN)
 if "RIGHT" in sides:
-    linkc.set_up()
+    linkc.set_up(SHM_KEY_RIGHT)
     GPIO.setup(TRIG_RIGHT, GPIO.OUT)
     GPIO.setup(ECHO_RIGHT, GPIO.IN)
 if "FRONT" in sides:
@@ -100,17 +101,19 @@ if "FRONT" in sides:
 
 while(1):
     if "LEFT" in sides:
+        linkc.set_up(SHM_KEY_LEFT)
         l = get_distance(TRIG_LEFT, ECHO_LEFT)
-        print("L: ", l)
+        l = int(l)
+        linkc.write_vals(bytes(str(l).encode("ascii")))
     if "RIGHT" in sides:
+        linkc.set_up(SHM_KEY_RIGHT)
         r = get_distance(TRIG_RIGHT, ECHO_RIGHT)
         r = int(r)
-        #print(r)
         linkc.write_vals(bytes(str(r).encode("ascii")))
     if "FRONT" in sides: 
+        linkc.set_up(SHM_KEY_FRONT)
         f = get_distance(TRIG_FRONT, ECHO_FRONT)
         f = int(f)
-        print(f)
         linkc.write_vals(bytes(str(f).encode("ascii")))
     time.sleep(0.01)
     

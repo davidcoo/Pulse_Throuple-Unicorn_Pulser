@@ -23,7 +23,10 @@
 #include <errno.h>
 
 #define BUF_SIZE 1024
-#define SHM_KEY 0x1234
+
+#define SHM_KEY_RIGHT 0X1234
+#define SHM_KEY_LEFT 0X5678
+#define SHM_KEY_FRONT 0x1357
 
 #define BITRATE 500000
 //#define LOCAL_HOST "169.254.81.79"
@@ -339,7 +342,7 @@ void *send_can(void *args) {
 
             frame.data[6] = 0;
             frame.data[7] = 0;
-            printf("(%ld) frame: %u %u %u %u %u %u  %u %u \n", time_ms(), frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+            //printf("(%ld) frame: %u %u %u %u %u %u  %u %u \n", time_ms(), frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
             nbytes = write (s, &frame, sizeof(frame));
             if (nbytes != sizeof(frame)) {
                 printf("Send error frame[0]\r\n");
@@ -406,8 +409,8 @@ void *receive_can(void *args) {
     }
 }
 
-int shmid;
-struct shmseg *shmp;
+int shmid_r, shmid_l, shmid_f;
+struct shmseg *shmp_r, *shmp_l, *shmp_f;
 
 void *collision_detection() {
     // basically the system read
@@ -416,34 +419,57 @@ void *collision_detection() {
     struct period_info pinfo;
     periodic_task_init(&pinfo, 10000000); //10 ms period
 
-    while (shmp->complete != 1) {
-        //printf("segment contains : \n\"%s\"\n", shmp->buf);
-        if (shmp->cnt == -1) {
+    // lol could probably make this a better cast but whatever
+    while (shmp_r->complete != 1) {
+        if (shmp_r->cnt == -1) {
             perror("read");
         }
-        //printf("Reading Process: Shared Memory: Read %d bytes\n", shmp->cnt);
-        // a periodic thing 
+        if (shmp_l->cnt == -1) {
+            perror("read");
+        }
+        if (shmp_f->cnt == -1) {
+            perror("read");
+        }
+
         wait_rest_of_period(&pinfo);
     }
 }
 
 void clean_up(){
-    if (shmdt(shmp) == -1) {
+    if (shmdt(shmp_r) == -1) {
         perror("shmdt");
     }
 
-   if (shmctl(shmid, IPC_RMID, 0) == -1) {
+   if (shmctl(shmid_r, IPC_RMID, 0) == -1) {
+      perror("shmctl");
+   }
+    if (shmdt(shmp_l) == -1) {
+        perror("shmdt");
+    }
+
+   if (shmctl(shmid_l, IPC_RMID, 0) == -1) {
+      perror("shmctl");
+   }
+    if (shmdt(shmp_f) == -1) {
+        perror("shmdt");
+    }
+
+   if (shmctl(shmid_f, IPC_RMID, 0) == -1) {
       perror("shmctl");
    }
 }
 int s; 
-pid_t pid_right;
+pid_t pid_right, pid_left, pid_front;
 
 
 void sigint_handler(int signum){
+    // forward sigint, could use gpid but lol
     kill(pid_right, SIGINT);
+    kill(pid_left, SIGINT);
+    kill(pid_front, SIGINT);
+
     close(s);
-    system("sudo ifconfig can0 down");
+    //system("sudo ifconfig can0 down");
     clean_up();
     exit(1);
 }
@@ -453,9 +479,18 @@ int main()
     // handler for control C to call cleanup
     signal(SIGINT, sigint_handler);
     pid_right = fork();
+    pid_left = fork();
+    pid_front = fork();
     if (pid_right == 0){
         execlp("python3", "python3", "ultra.py", "RIGHT", NULL);
     }
+    if (pid_left == 0){
+        execlp("python3", "python3", "ultra.py", "LEFT", NULL);
+    }
+    if (pid_front == 0){
+        execlp("python3", "python3", "ultra.py", "FRONT", NULL);
+    }
+
     int ret;
     int nbytes;
     struct sockaddr_can addr;
@@ -502,7 +537,6 @@ int main()
         perror("socket PF_CAN failed");
         return 1;
     }
-    printf("after 1\n");
     //2. Specify can0 device
     strcpy(ifr.ifr_name, "can0");
     ret = ioctl(s, SIOCGIFINDEX, &ifr);
@@ -511,7 +545,6 @@ int main()
         perror("ioctl failed");
         return 1;
     }
-    printf("after 2\n");
     //3. Bind the sockt to can0
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
@@ -520,7 +553,6 @@ int main()
         perror("bind failed");
         return 1;
     }
-    printf("after 3 \n");
 
     // Init state vars
     control_state->enabled = 1;
@@ -579,18 +611,45 @@ int main()
     send_args->control_state = control_state;
     pthread_create(&send_can_tid, NULL, send_can, (void *)send_args);
 
-    shmid = shmget(SHM_KEY, sizeof(struct shmseg), 0644|IPC_CREAT);
-    if (shmid == -1) {
+    shmid_r = shmget(SHM_KEY_RIGHT, sizeof(struct shmseg), 0644|IPC_CREAT);
+    if (shmid_r == -1) {
         perror("Shared memory");
         return 1;
     }
     
     // Attach to the segment to get a pointer to it.
-    shmp = shmat(shmid, NULL, 0);
-    if (shmp == (void *) -1) {
+    shmp_r = shmat(shmid_r, NULL, 0);
+    if (shmp_r == (void *) -1) {
         perror("Shared memory attach");
         return 1;
     }
+
+    shmid_l = shmget(SHM_KEY_LEFT, sizeof(struct shmseg), 0644|IPC_CREAT);
+    if (shmid_l == -1) {
+        perror("Shared memory");
+        return 1;
+    }
+    
+    // Attach to the segment to get a pointer to it.
+    shmp_l = shmat(shmid_l, NULL, 0);
+    if (shmp_l == (void *) -1) {
+        perror("Shared memory attach");
+        return 1;
+    }
+    
+    shmid_f = shmget(SHM_KEY_FRONT, sizeof(struct shmseg), 0644|IPC_CREAT);
+    if (shmid_f == -1) {
+        perror("Shared memory");
+        return 1;
+    }
+    
+    // Attach to the segment to get a pointer to it.
+    shmp_f = shmat(shmid_f, NULL, 0);
+    if (shmp_f == (void *) -1) {
+        perror("Shared memory attach");
+        return 1;
+    }
+
 
     receive_position_info_t c_args;
     receive_position_info_t *collision_args;
@@ -603,7 +662,6 @@ int main()
             control_state->front_enabled = 0;
             //printf("flipped front_enabled\n");
         }
-        //printf("count: %ld\n", control_state->heartbeat_front);
 
         //keep checking the heartbeats and update enabled or disabled? 
     }

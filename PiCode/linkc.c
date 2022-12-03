@@ -10,7 +10,10 @@
 #include<string.h>
 
 #define BUF_SIZE 1024
-#define SHM_KEY 0x1234
+
+#define SHM_KEY_RIGHT 0X1234
+#define SHM_KEY_LEFT 0X5678
+#define SHM_KEY_FRONT 0x1357
 
 struct shmseg {
    int cnt;
@@ -22,8 +25,8 @@ int fill_buffer(char * bufptr, char *values, int size);
 int shmid;
 struct shmseg *shmp;
 int enabled = 1;
-int set_up(){
-   shmid = shmget(SHM_KEY, sizeof(struct shmseg), 0644|IPC_CREAT);
+int set_up(long shm_key){
+   shmid = shmget(shm_key, sizeof(struct shmseg), 0644|IPC_CREAT);
    if (shmid == -1) {
       perror("Shared memory");
       return 1;
@@ -51,7 +54,7 @@ int write_vals(char *values[]) {
    char *bufptr;
    int spaceavailable;
    
-
+   printf("values: %s\n", values);
    /* Transfer blocks of data from buffer to shared memory */
    memset(bufvals, 0, 16);
    memcpy(bufvals, values, 16);
@@ -59,7 +62,6 @@ int write_vals(char *values[]) {
    spaceavailable = 16;
    shmp->cnt = fill_buffer(bufptr, bufvals, spaceavailable);
    shmp->complete = 0;
-   printf("Writing Process: Shared Memory Write: Wrote %d bytes\n", shmp->cnt);
    bufptr = shmp->buf;
    spaceavailable = 16;   
    return 0;
