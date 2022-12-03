@@ -115,5 +115,5 @@ while(1):
         f = get_distance(TRIG_FRONT, ECHO_FRONT)
         f = int(f)
         linkc.write_vals(bytes(str(f).encode("ascii")))
-    time.sleep(0.01)
+    time.sleep(0.5)
     

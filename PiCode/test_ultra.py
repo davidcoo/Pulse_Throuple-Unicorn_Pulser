@@ -102,13 +102,20 @@ if "FRONT" in sides:
 while(1):
     if "LEFT" in sides:
         linkc.set_up(SHM_KEY_LEFT)
-        print("l: ", get_distance(TRIG_LEFT, ECHO_LEFT))
-
+        l = int(get_distance(TRIG_LEFT, ECHO_LEFT))
+        print("l: ", l)
+        #print(bytes(str(l).encode("ascii")))
     if "RIGHT" in sides:
         linkc.set_up(SHM_KEY_RIGHT)
-        print("r: ", get_distance(TRIG_RIGHT, ECHO_RIGHT))
+        r = int(get_distance(TRIG_RIGHT, ECHO_RIGHT))
+        print("r: ", r)
+        #print(bytes(str(r).encode("ascii")))
+
     if "FRONT" in sides: 
         linkc.set_up(SHM_KEY_FRONT)
-        print("f: ", get_distance(TRIG_FRONT, ECHO_FRONT))
+        f = int(get_distance(TRIG_FRONT, ECHO_FRONT))
+        print("f: ", f)
+        #print(bytes(str(f).encode("ascii")))
+
     time.sleep(0.01)
     

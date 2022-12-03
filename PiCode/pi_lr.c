@@ -58,7 +58,7 @@
 #define COLLISION_MAX_LEFT 55
 #define COLLISION_MAX_RIGHT 45
 
-#define COLLISION_ITER 40
+#define COLLISION_ITER 20
 
 // do the thresholds for left and right turn 
 // run safe exit!
@@ -221,10 +221,11 @@ void *send_force(void *args) {
     }
 
     while (1) { 
+        //force = 0;
         usleep(TX_INTERVAL_MS * 100);
-       // printf("Send force %d\n", force);
-        force  = control_state->servo_pos;
-        if (control_state->front_enabled == 0) force = 0;
+        if (!(control_state->front_enabled)){
+            force = 0;
+        }
         if (control_state->enabled && !(control_state->collision)) { 
             sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
                 (struct sockaddr *) &servaddr, sizeof(servaddr));
@@ -264,12 +265,17 @@ void *receive_position(void *args){
             pthread_mutex_unlock(&(control_state->mux_pos));
         
             pthread_mutex_lock(&(control_state->mux_blink));
+
+            // should we be blinking?
             if (state.rgbButtons[5] > 0) { // Left
                 switch(control_state->left_trig_state) {
                     case BLINK_0:
                         // toggle blinker - using xor to toggle last bit
                         control_state->blink_left = control_state->blink_left ^ 1;
                         control_state->left_trig_state = BLINK_1;
+                        if (control_state->blink_right = 1) {
+                            control_state->blink_right = 0;
+                        }
                         break;
                     case BLINK_1:
                         control_state->left_trig_state = BLINK_2;
@@ -287,6 +293,9 @@ void *receive_position(void *args){
                         // toggle blinker - using xor to toggle last bit
                         control_state->blink_right = control_state->blink_right ^ 1;
                         control_state->right_trig_state = BLINK_1;
+                        if (control_state->blink_left = 1) {
+                            control_state->blink_left = 0;
+                        }
                         break;
                     case BLINK_1:
                         control_state->right_trig_state = BLINK_2;
@@ -302,8 +311,7 @@ void *receive_position(void *args){
             blink_turn_state_e nextL = control_state->left_turn_state;
             switch(control_state->left_turn_state) {
                 case BLINK_OFF:
-                    // only blink if right is off
-                    if (control_state->blink_left && control_state->right_turn_state != BLINK_ACTIVE) {
+                    if (control_state->blink_left) {
                         nextL = BLINK_ACTIVE;
                     } // stay off if not
                     break;
@@ -325,7 +333,7 @@ void *receive_position(void *args){
             blink_turn_state_e nextR = control_state->right_turn_state;
             switch(control_state->right_turn_state) {
                 case BLINK_OFF:
-                    if (control_state->blink_right && control_state->left_turn_state != BLINK_ACTIVE) {
+                    if (control_state->blink_right) {
                         nextR = BLINK_ACTIVE;
                     } // stay off if not
                     break;
@@ -373,7 +381,7 @@ void *receive_position(void *args){
                     control_state->collision = 0;
                 }
                 else {
-                    control_state->enabled = !(control_state->enabled);
+                control_state->enabled = !(control_state->enabled);
                 }
             }
         }
@@ -464,7 +472,10 @@ void *receive_can(void *args) {
                     // front zone, 
                     // save force value and
                     pthread_mutex_lock(&(control_state->mux_servo));
-                    control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
+                    //control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
+                    //printf("(%ld) frame: %u %u %u %u %u %u  %u %u \n", time_ms(), frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+                    control_state->servo_current = (uint16_t)frame.data[1];
+                    //printf("control state: %u \n", control_state->servo_current);
                     control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
                     pthread_mutex_unlock(&(control_state->mux_servo));
                     // increment heartbeat
@@ -498,21 +509,30 @@ void *collision_detection(void *args) {
     periodic_task_init(&pinfo, 30000000); //10 ms period
 
     // lol could probably make this a better cast but whatever
-    int right, left, front;
-    int right_iter, left_iter, front_iter, iter;
+    int right, left;
+    int iter, iter10, iter20_l, iter20_r;
     while (shmp_r->complete != 1) {
-
-        printf("right: %s\n", shmp_r->buf);
         right = atoi(shmp_r->buf);
         left = atoi(shmp_l->buf);
-        front = atoi(shmp_f->buf);
-
-        int collision_10 = front <= 10 || left <= 10 || right <= 10;
-        int coll_20_front = front > 10 && front <= 20;
+        printf("left: %d, right:%d\n", left, right);
+        int collision_10 = left <= 10 || right <= 10;
         int coll_20_left = left > 10 && left <= 20;
         int coll_20_right = right > 10 && right <= 20;
 
         if (collision_10) {
+            iter = 0;
+            iter10++;
+            iter20_l = 0;
+            iter20_r = 0;
+            if (iter10 > COLLISION_ITER) {
+                control_state->collision = 0;
+                pthread_mutex_lock(&(control_state->mux_blink));
+                control_state->blink_left = 0;
+                control_state->blink_right = 0;
+                pthread_mutex_unlock(&(control_state->mux_blink));    
+                iter10 = 0;      
+                printf("EXIT COLLISION\n");
+            }
             control_state->collision = 1;
 
             // turn on both blinkers
@@ -526,24 +546,24 @@ void *collision_detection(void *args) {
             control_state->brake_pos = 100;
             pthread_mutex_unlock(&(control_state->mux_pos));
                   
-            printf("COLLISION 10: (%ld): f = %d, r = %d, l = %d \n", time_ms(), front, right, left);
-        } else if (coll_20_front) {
-            control_state->collision = 2;
-
-            pthread_mutex_lock(&(control_state->mux_blink));
-            control_state->blink_left = 1;
-            control_state->blink_right = 1;
-            pthread_mutex_unlock(&(control_state->mux_blink));
-
-            pthread_mutex_lock(&(control_state->mux_pos));
-            if (control_state->throttle_pos > COLLISION_MAX_THROTTLE)
-                control_state->throttle_pos = COLLISION_MAX_THROTTLE;
-            pthread_mutex_unlock(&(control_state->mux_pos)); 
-            printf("COLLISION 20 FRONT (%ld): f = %d, r = %d, l = %d \n", time_ms(), front, right, left);
-
-
-        } else if (coll_20_left) {
+            printf("COLLISION 10: (%ld): r = %d, l = %d \n", time_ms(), right, left);
+        } 
+      else if (!(control_state->collision ==1 ) && coll_20_left) {
             // okay to else if because we assume only 1 collision in our scope
+            
+            iter = 0;
+            iter10 = 0;
+            iter20_l++;
+            iter20_r = 0;
+            if (iter20_l > COLLISION_ITER) {
+                control_state->collision = 0;
+                pthread_mutex_lock(&(control_state->mux_blink));
+                control_state->blink_left = 0;
+                control_state->blink_right = 0;
+                pthread_mutex_unlock(&(control_state->mux_blink));    
+                iter20_l = 0;      
+                printf("EXIT COLLISION\n");
+            }
             control_state->collision = 2;
 
             pthread_mutex_lock(&(control_state->mux_blink));
@@ -557,10 +577,24 @@ void *collision_detection(void *args) {
             if (control_state->steering_pos < COLLISION_MAX_LEFT)
                 control_state->steering_pos = COLLISION_MAX_LEFT;
             pthread_mutex_unlock(&(control_state->mux_pos)); 
-            printf("COLLISION 20 LEFT (%ld): f = %d, r = %d, l = %d \n", time_ms(), front, right, left);
+            printf("COLLISION 20 LEFT (%ld):  r = %d, l = %d \n", time_ms(),  right, left);
 
 
-        } else if (coll_20_right) {
+        } else if (!(control_state->collision ==1 ) && coll_20_right) {
+            
+            iter = 0;
+            iter10 = 0;
+            iter20_l = 0;
+            iter20_r++;
+            if (iter20_r > COLLISION_ITER) {
+                control_state->collision = 0;
+                pthread_mutex_lock(&(control_state->mux_blink));
+                control_state->blink_left = 0;
+                control_state->blink_right = 0;
+                pthread_mutex_unlock(&(control_state->mux_blink));    
+                iter20_r = 0;      
+                printf("EXIT COLLISION\n");
+            }
             control_state->collision = 2;
 
             pthread_mutex_lock(&(control_state->mux_blink));
@@ -574,7 +608,7 @@ void *collision_detection(void *args) {
             if (control_state->steering_pos > COLLISION_MAX_RIGHT)
                 control_state->steering_pos = COLLISION_MAX_RIGHT;
             pthread_mutex_unlock(&(control_state->mux_pos)); 
-            printf("COLLISION 20 RIGHT (%ld): f = %d, r = %d, l = %d \n", time_ms(), front, right, left);
+            printf("COLLISION 20 RIGHT (%ld): r = %d, l = %d \n", time_ms(),right, left);
 
         }
         else if (control_state->collision == 2) {
@@ -626,7 +660,6 @@ void sigint_handler(int signum){
     // forward sigint, could use gpid but lol
     kill(pid_right, SIGINT);
     kill(pid_left, SIGINT);
-    kill(pid_front, SIGINT);
 
     close(s);
     //system("sudo ifconfig can0 down");
@@ -638,15 +671,12 @@ int main()
     signal(SIGINT, sigint_handler);
     pid_right = fork();
     pid_left = fork();
-    pid_front = fork();
+
     if (pid_right == 0){
         execlp("python3", "python3", "ultra.py", "RIGHT", NULL);
     }
     if (pid_left == 0){
         execlp("python3", "python3", "ultra.py", "LEFT", NULL);
-    }
-    if (pid_front == 0){
-        execlp("python3", "python3", "ultra.py", "FRONT", NULL);
     }
 
     int ret;
@@ -717,7 +747,7 @@ int main()
 
     // Init state vars
     control_state->enabled = 1;
-    control_state->collision = 1;
+    control_state->collision = 0;
  
     control_state->brake_pos = 0;
     control_state->throttle_pos = 0;
@@ -797,19 +827,7 @@ int main()
         perror("Shared memory attach");
         return 1;
     }
-    
-    shmid_f = shmget(SHM_KEY_FRONT, sizeof(struct shmseg), 0644|IPC_CREAT);
-    if (shmid_f == -1) {
-        perror("Shared memory");
-        return 1;
-    }
-    
-    // Attach to the segment to get a pointer to it.
-    shmp_f = shmat(shmid_f, NULL, 0);
-    if (shmp_f == (void *) -1) {
-        perror("Shared memory attach");
-        return 1;
-    }
+ 
 
     pthread_t collision_tid;
     pthread_create(&collision_tid, NULL, collision_detection, (void *)control_state);

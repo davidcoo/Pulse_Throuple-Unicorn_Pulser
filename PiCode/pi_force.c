@@ -58,7 +58,7 @@
 #define COLLISION_MAX_LEFT 55
 #define COLLISION_MAX_RIGHT 45
 
-#define COLLISION_ITER 40
+#define COLLISION_ITER 5
 
 // do the thresholds for left and right turn 
 // run safe exit!
@@ -221,11 +221,27 @@ void *send_force(void *args) {
     }
 
     while (1) { 
+        //force = 0;
         usleep(TX_INTERVAL_MS * 100);
-       // printf("Send force %d\n", force);
-        force  = control_state->servo_pos;
-        if (control_state->front_enabled == 0) force = 0;
+        // if (control_state->front_enabled == 0){
+        //     force = 0;
+        // } else {
+        // // printf("Send force %d\n", force);
+        //     force  = control_state->servo_current;
+        //     if (force > 127){
+        //         force = 127;
+        //     }
+        //     int force_direction;
+        //     if (control_state->steering_pos < 50){
+        //         force_direction = -1;
+        //     }
+        //     else force_direction = 1;
+        //     force *= force_direction;
+        // }
+        //force += 5;
+        force = control_state->servo_current;
         if (control_state->enabled && !(control_state->collision)) { 
+            printf("froce: %d\n", force);
             sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
                 (struct sockaddr *) &servaddr, sizeof(servaddr));
         }  
@@ -264,12 +280,17 @@ void *receive_position(void *args){
             pthread_mutex_unlock(&(control_state->mux_pos));
         
             pthread_mutex_lock(&(control_state->mux_blink));
+
+            // should we be blinking?
             if (state.rgbButtons[5] > 0) { // Left
                 switch(control_state->left_trig_state) {
                     case BLINK_0:
                         // toggle blinker - using xor to toggle last bit
                         control_state->blink_left = control_state->blink_left ^ 1;
                         control_state->left_trig_state = BLINK_1;
+                        if (control_state->blink_right = 1) {
+                            control_state->blink_right = 0;
+                        }
                         break;
                     case BLINK_1:
                         control_state->left_trig_state = BLINK_2;
@@ -287,6 +308,9 @@ void *receive_position(void *args){
                         // toggle blinker - using xor to toggle last bit
                         control_state->blink_right = control_state->blink_right ^ 1;
                         control_state->right_trig_state = BLINK_1;
+                        if (control_state->blink_left = 1) {
+                            control_state->blink_left = 0;
+                        }
                         break;
                     case BLINK_1:
                         control_state->right_trig_state = BLINK_2;
@@ -302,8 +326,7 @@ void *receive_position(void *args){
             blink_turn_state_e nextL = control_state->left_turn_state;
             switch(control_state->left_turn_state) {
                 case BLINK_OFF:
-                    // only blink if right is off
-                    if (control_state->blink_left && control_state->right_turn_state != BLINK_ACTIVE) {
+                    if (control_state->blink_left) {
                         nextL = BLINK_ACTIVE;
                     } // stay off if not
                     break;
@@ -325,7 +348,7 @@ void *receive_position(void *args){
             blink_turn_state_e nextR = control_state->right_turn_state;
             switch(control_state->right_turn_state) {
                 case BLINK_OFF:
-                    if (control_state->blink_right && control_state->left_turn_state != BLINK_ACTIVE) {
+                    if (control_state->blink_right) {
                         nextR = BLINK_ACTIVE;
                     } // stay off if not
                     break;
@@ -464,7 +487,10 @@ void *receive_can(void *args) {
                     // front zone, 
                     // save force value and
                     pthread_mutex_lock(&(control_state->mux_servo));
-                    control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
+                    //control_state->servo_current = ((uint16_t)frame.data[0] << 8) & frame.data[1];
+                    printf("(%ld) frame: %u %u %u %u %u %u  %u %u \n", time_ms(), frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+                    control_state->servo_current = (uint16_t)frame.data[1];
+                    printf("control state: %u \n", control_state->servo_current);
                     control_state->servo_pos = ((uint16_t)frame.data[2] << 8) & frame.data[1];
                     pthread_mutex_unlock(&(control_state->mux_servo));
                     // increment heartbeat
@@ -501,8 +527,6 @@ void *collision_detection(void *args) {
     int right, left, front;
     int right_iter, left_iter, front_iter, iter;
     while (shmp_r->complete != 1) {
-
-        printf("right: %s\n", shmp_r->buf);
         right = atoi(shmp_r->buf);
         left = atoi(shmp_l->buf);
         front = atoi(shmp_f->buf);
@@ -635,19 +659,19 @@ void sigint_handler(int signum){
 }
 int main()
 {
-    signal(SIGINT, sigint_handler);
-    pid_right = fork();
-    pid_left = fork();
-    pid_front = fork();
-    if (pid_right == 0){
-        execlp("python3", "python3", "ultra.py", "RIGHT", NULL);
-    }
-    if (pid_left == 0){
-        execlp("python3", "python3", "ultra.py", "LEFT", NULL);
-    }
-    if (pid_front == 0){
-        execlp("python3", "python3", "ultra.py", "FRONT", NULL);
-    }
+    //signal(SIGINT, sigint_handler);
+    // pid_right = fork();
+    // pid_left = fork();
+    // pid_front = fork();
+    // if (pid_right == 0){
+    //     execlp("python3", "python3", "ultra.py", "RIGHT", NULL);
+    // }
+    // if (pid_left == 0){
+    //     execlp("python3", "python3", "ultra.py", "LEFT", NULL);
+    // }
+    // if (pid_front == 0){
+    //     execlp("python3", "python3", "ultra.py", "FRONT", NULL);
+    // }
 
     int ret;
     int nbytes;
@@ -717,7 +741,7 @@ int main()
 
     // Init state vars
     control_state->enabled = 1;
-    control_state->collision = 1;
+    control_state->collision = 0;
  
     control_state->brake_pos = 0;
     control_state->throttle_pos = 0;
@@ -779,40 +803,40 @@ int main()
     }
     
     // Attach to the segment to get a pointer to it.
-    shmp_r = shmat(shmid_r, NULL, 0);
-    if (shmp_r == (void *) -1) {
-        perror("Shared memory attach");
-        return 1;
-    }
+    // shmp_r = shmat(shmid_r, NULL, 0);
+    // if (shmp_r == (void *) -1) {
+    //     perror("Shared memory attach");
+    //     return 1;
+    // }
 
-    shmid_l = shmget(SHM_KEY_LEFT, sizeof(struct shmseg), 0644|IPC_CREAT);
-    if (shmid_l == -1) {
-        perror("Shared memory");
-        return 1;
-    }
+    // shmid_l = shmget(SHM_KEY_LEFT, sizeof(struct shmseg), 0644|IPC_CREAT);
+    // if (shmid_l == -1) {
+    //     perror("Shared memory");
+    //     return 1;
+    // }
     
-    // Attach to the segment to get a pointer to it.
-    shmp_l = shmat(shmid_l, NULL, 0);
-    if (shmp_l == (void *) -1) {
-        perror("Shared memory attach");
-        return 1;
-    }
+    // // Attach to the segment to get a pointer to it.
+    // shmp_l = shmat(shmid_l, NULL, 0);
+    // if (shmp_l == (void *) -1) {
+    //     perror("Shared memory attach");
+    //     return 1;
+    // }
     
-    shmid_f = shmget(SHM_KEY_FRONT, sizeof(struct shmseg), 0644|IPC_CREAT);
-    if (shmid_f == -1) {
-        perror("Shared memory");
-        return 1;
-    }
+    // shmid_f = shmget(SHM_KEY_FRONT, sizeof(struct shmseg), 0644|IPC_CREAT);
+    // if (shmid_f == -1) {
+    //     perror("Shared memory");
+    //     return 1;
+    // }
     
-    // Attach to the segment to get a pointer to it.
-    shmp_f = shmat(shmid_f, NULL, 0);
-    if (shmp_f == (void *) -1) {
-        perror("Shared memory attach");
-        return 1;
-    }
+    // // Attach to the segment to get a pointer to it.
+    // shmp_f = shmat(shmid_f, NULL, 0);
+    // if (shmp_f == (void *) -1) {
+    //     perror("Shared memory attach");
+    //     return 1;
+    // }
 
     pthread_t collision_tid;
-    pthread_create(&collision_tid, NULL, collision_detection, (void *)control_state);
+    //pthread_create(&collision_tid, NULL, collision_detection, (void *)control_state);
 
     while(1){
         long count = time_ms() - control_state->heartbeat_front;

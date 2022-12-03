@@ -54,7 +54,7 @@ int write_vals(char *values[]) {
    char *bufptr;
    int spaceavailable;
    
-   printf("values: %s\n", values);
+   //printf("values: %s\n", values);
    /* Transfer blocks of data from buffer to shared memory */
    memset(bufvals, 0, 16);
    memcpy(bufvals, values, 16);
