@@ -381,7 +381,7 @@ void *receive_position(void *args){
                     control_state->collision = 0;
                 }
                 else {
-                control_state->enabled = !(control_state->enabled);
+                    control_state->enabled = !(control_state->enabled);
                 }
             }
         }

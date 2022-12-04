@@ -227,7 +227,7 @@ void *send_force(void *args) {
             force = 0;
         }
         if (control_state->enabled && !(control_state->collision)) { 
-            printf("froce: %d\n", force);
+            //: %d\n", force);
             sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
                 (struct sockaddr *) &servaddr, sizeof(servaddr));
         }  
