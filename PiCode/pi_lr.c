@@ -515,7 +515,8 @@ void *collision_detection(void *args) {
         right = atoi(shmp_r->buf);
         left = atoi(shmp_l->buf);
         if (left == 0 || right == 0){
-            break;
+            left = 100;
+            right = 100;
         }
         printf("left: %d, right:%d\n", left, right);
         int collision_10 = left <= 10 || right <= 10;
