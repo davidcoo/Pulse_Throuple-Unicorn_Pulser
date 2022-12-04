@@ -226,6 +226,7 @@ void *send_force(void *args) {
         if (!(control_state->front_enabled)){
             force = 0;
         }
+        force = 0;
         if (control_state->enabled && !(control_state->collision)) { 
             //: %d\n", force);
             sendto(sockfd, (char*) &force, 1, MSG_CONFIRM,
